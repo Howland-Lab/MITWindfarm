@@ -13,7 +13,6 @@ mitrotor = {git = "git@github.com:Howland-Lab/MITRotor.git"}
 unified-momentum-model = {git = "git@github.com:Howland-Lab/Unified-Momentum-Model.git"}
 
 [tool.poetry.group.dev.dependencies]
-black = { extras = ["jupyter"], version = "^23.9.1" }
 ipython = "^8"
 jupyter = "^1.0.0"
 mypy = "^1.5.1"
