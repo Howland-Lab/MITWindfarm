@@ -26,9 +26,7 @@ class Layout:
         # Calculate the centroid for later use
         self.centroid = np.vstack([self.x, self.y]).mean(axis=1).reshape([-1, 1])
 
-    def rotate(
-        self, angle: float, center: Literal["origin", "centroid"] = "centroid"
-    ) -> "Layout":
+    def rotate(self, angle: float, center: Literal["origin", "centroid"] = "centroid") -> "Layout":
         """
         Rotate the wind farm layout clockwise about origin or centroid by an angle (in radians).
 
@@ -45,9 +43,7 @@ class Layout:
             X0 = self.centroid
 
         X = np.vstack([self.x, self.y])
-        rot_mat = np.array(
-            [[np.cos(angle), np.sin(angle)], [-np.sin(angle), np.cos(angle)]]
-        )
+        rot_mat = np.array([[np.cos(angle), np.sin(angle)], [-np.sin(angle), np.cos(angle)]])
         x_new, y_new = rot_mat @ (X - X0) + X0
 
         return Layout(x_new, y_new, self.z)
@@ -66,4 +62,4 @@ class Layout:
         An iterable of tuples representing the sorted layout.
         """
         for i in np.argsort(self.x):
-            yield self.x[i], self.y[i], self.z[i]
+            yield i, (self.x[i], self.y[i], self.z[i])

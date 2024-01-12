@@ -33,14 +33,6 @@ from MITRotor.BEM import BEMSolution, RotorDefinition
 class RotorSolution:
     """
     Data class representing the solution of rotor models.
-
-    Attributes:
-    - Cp (float): Power coefficient.
-    - Ct (float): Thrust coefficient.
-    - Ctprime (float): Thrust coefficient including the effect of yaw.
-    - an (float): Axial induction factor.
-    - u4 (float): Axial velocity at the rotor tip.
-    - v4 (float): Tangential velocity at the rotor tip.
     """
 
     Cp: float
@@ -70,6 +62,70 @@ class Rotor(ABC):
         RotorSolution: The calculated rotor solution.
         """
         pass
+
+
+class AD(Rotor):
+    """
+    Axial Distribution rotor model.
+
+    Methods:
+    - __call__(Ctprime, yaw): Calculate the rotor solution for given Ctprime and yaw inputs.
+    """
+
+    def __init__(self):
+        """
+        Initialize the AD rotor model using the Heck momentum model.
+        """
+        self._model = Heck()
+
+    def __call__(self, Ctprime, yaw) -> RotorSolution:
+        """
+        Calculate the rotor solution for given Ctprime and yaw inputs.
+
+        Parameters:
+        - Ctprime (float): Thrust coefficient including the effect of yaw.
+        - yaw (float): Yaw angle of the rotor.
+
+        Returns:
+        RotorSolution: The calculated rotor solution.
+        """
+        sol: MomentumSolution = self._model(Ctprime, yaw)
+        return RotorSolution(sol.Cp, sol.Ct, sol.Ctprime, sol.an, sol.u4, sol.v4)
+
+
+class UnifiedAD(Rotor):
+    """
+    Unified Momentum Model rotor with an axial induction factor.
+
+    Attributes:
+    - beta (float): Axial induction factor.
+
+    Methods:
+    - __call__(Ctprime, yaw): Calculate the rotor solution for given Ctprime and yaw inputs.
+    """
+
+    def __init__(self, beta=0.1403):
+        """
+        Initialize the UnifiedAD rotor model with the given axial induction factor.
+
+        Parameters:
+        - beta (float): Axial induction factor (default is 0.1403).
+        """
+        self._model = UnifiedMomentum(beta=beta)
+
+    def __call__(self, Ctprime, yaw) -> RotorSolution:
+        """
+        Calculate the rotor solution for given Ctprime and yaw inputs.
+
+        Parameters:
+        - Ctprime (float): Thrust coefficient including the effect of yaw.
+        - yaw (float): Yaw angle of the rotor.
+
+        Returns:
+        RotorSolution: The calculated rotor solution.
+        """
+        sol: MomentumSolution = self._model(Ctprime, yaw)
+        return RotorSolution(sol.Cp[0], sol.Ct[0], sol.Ctprime, sol.an[0], sol.u4[0], sol.v4[0])
 
 
 class BEM(Rotor):
@@ -106,72 +162,4 @@ class BEM(Rotor):
         RotorSolution: The calculated rotor solution.
         """
         sol: BEMSolution = self._model(pitch, tsr, yaw)
-        return RotorSolution(
-            sol.Cp(), sol.Ct(), sol.Ctprime(), sol.a(), sol.u4(), sol.v4()
-        )
-
-
-class UnifiedAD(Rotor):
-    """
-    Unified Momentum Model rotor with an axial induction factor.
-
-    Attributes:
-    - beta (float): Axial induction factor.
-
-    Methods:
-    - __call__(Ctprime, yaw): Calculate the rotor solution for given Ctprime and yaw inputs.
-    """
-
-    def __init__(self, beta=0.1403):
-        """
-        Initialize the UnifiedAD rotor model with the given axial induction factor.
-
-        Parameters:
-        - beta (float): Axial induction factor (default is 0.1403).
-        """
-        self._model = UnifiedMomentum(beta=beta)
-
-    def __call__(self, Ctprime, yaw) -> RotorSolution:
-        """
-        Calculate the rotor solution for given Ctprime and yaw inputs.
-
-        Parameters:
-        - Ctprime (float): Thrust coefficient including the effect of yaw.
-        - yaw (float): Yaw angle of the rotor.
-
-        Returns:
-        RotorSolution: The calculated rotor solution.
-        """
-        sol: MomentumSolution = self._model(Ctprime, yaw)
-        return RotorSolution(
-            sol.Cp[0], sol.Ct[0], sol.Ctprime, sol.an[0], sol.u4[0], sol.v4[0]
-        )
-
-
-class AD(Rotor):
-    """
-    Axial Distribution rotor model.
-
-    Methods:
-    - __call__(Ctprime, yaw): Calculate the rotor solution for given Ctprime and yaw inputs.
-    """
-
-    def __init__(self):
-        """
-        Initialize the AD rotor model using the Heck momentum model.
-        """
-        self._model = Heck()
-
-    def __call__(self, Ctprime, yaw) -> RotorSolution:
-        """
-        Calculate the rotor solution for given Ctprime and yaw inputs.
-
-        Parameters:
-        - Ctprime (float): Thrust coefficient including the effect of yaw.
-        - yaw (float): Yaw angle of the rotor.
-
-        Returns:
-        RotorSolution: The calculated rotor solution.
-        """
-        sol: MomentumSolution = self._model(Ctprime, yaw)
-        return RotorSolution(sol.Cp, sol.Ct, sol.Ctprime, sol.an, sol.u4, sol.v4)
+        return RotorSolution(sol.Cp(), sol.Ct(), sol.Ctprime(), sol.a(), sol.u4(), sol.v4())

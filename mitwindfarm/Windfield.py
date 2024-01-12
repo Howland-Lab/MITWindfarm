@@ -17,9 +17,12 @@ Note: The methods wsp and wdir should be implemented in subclasses according to 
 """
 
 from abc import ABC, abstractmethod
+from typing import Literal
 
 from numpy.typing import ArrayLike
 import numpy as np
+
+from .Wake import Wake
 
 
 class Windfield(ABC):
@@ -82,6 +85,61 @@ class Uniform(Windfield):
         ArrayLike: Array of ones with the same shape as input coordinates.
         """
         return np.ones_like(x)
+
+    def wdir(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Returns an array of zeros with the same shape as input coordinates.
+
+        Parameters:
+        - x: x-coordinates.
+        - y: y-coordinates.
+        - z: z-coordinates.
+
+        Returns:
+        ArrayLike: Array of zeros with the same shape as input coordinates.
+        """
+        return np.zeros_like(x)
+
+
+class Superimposed(Windfield):
+    def __init__(
+        self,
+        base_windfield: Windfield,
+        wakes: list[Wake],
+        method=Literal["linear", "quadratic", "dominant"],
+    ):
+        self.base_windfield = base_windfield
+        self.wakes = wakes
+        self.method = method
+
+    def add_wake(self, wake: Wake):
+        self.wakes.append(wake)
+
+    def wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Returns an array of ones with the same shape as input coordinates.
+
+        Parameters:
+        - x: x-coordinates.
+        - y: y-coordinates.
+        - z: z-coordinates.
+
+        Returns:
+        ArrayLike: Array of ones with the same shape as input coordinates.
+        """
+        base = self.base_windfield.wsp(x, y, z)
+        deficits = np.array([wake.deficit(x, y, z) for wake in self.wakes])
+
+        if self.method == "linear":
+            out = base - deficits.sum(axis=0)
+        elif self.method == "quadratic":
+            out = base - np.sqrt(np.sum(deficits**2, axis=0))
+        elif self.method == "dominant":
+            out = base - deficits.max(axis=0)
+        else:
+            raise NotImplementedError
+
+        return out
 
     def wdir(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """

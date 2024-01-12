@@ -38,5 +38,5 @@ def test_rotate_centroid(sample_layout):
 def test_iter_downstream():
     layout = Layout([3, 1, 2], [6, 4, 5], [9, 7, 8])
     sorted_layout = list(layout.iter_downstream())
-    expected_sorted_layout = [(1, 4, 7), (2, 5, 8), (3, 6, 9)]
+    expected_sorted_layout = [(1, (1, 4, 7)), (2, (2, 5, 8)), (0, (3, 6, 9))]
     assert sorted_layout == expected_sorted_layout
