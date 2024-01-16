@@ -1,17 +1,20 @@
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import ArrayLike
 from scipy.integrate import cumtrapz
 from scipy.special import erf
 
-from .Rotor import RotorSolution
+if TYPE_CHECKING:
+    from .Rotor import RotorSolution
 
 
 class Wake(ABC):
     @abstractmethod
-    def __init__(self, x: float, y: float, z: float, rotor_sol: RotorSolution, **kwargs):
+    def __init__(
+        self, x: float, y: float, z: float, rotor_sol: "RotorSolution", **kwargs
+    ):
         ...
 
     @abstractmethod
@@ -29,7 +32,7 @@ class Gaussian(Wake):
         x: float,
         y: float,
         z: float,
-        rotor_sol: RotorSolution,
+        rotor_sol: "RotorSolution",
         sigma=0.25,
         kw=0.07,
     ):
@@ -76,7 +79,11 @@ class Gaussian(Wake):
         d = self._wake_diameter(x)
         yc = self.centerline(x_glob) - self.y
         du = self._du(x, wake_diameter=d)
-        deficit_ = 1 / (8 * self.sigma**2) * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
+        deficit_ = (
+            1
+            / (8 * self.sigma**2)
+            * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
+        )
 
         return deficit_ * du
 

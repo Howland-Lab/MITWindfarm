@@ -135,7 +135,7 @@ class Superimposed(Windfield):
         elif self.method == "quadratic":
             out = base - np.sqrt(np.sum(deficits**2, axis=0))
         elif self.method == "dominant":
-            out = base - deficits.max(axis=0)
+            out = base - deficits.max(axis=0, initial=0)
         else:
             raise NotImplementedError
 

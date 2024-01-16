@@ -26,13 +26,17 @@ class Windfarm:
         self.base_windfield = base_windfield
         self.N = len(turbines)
 
-    def __call__(self, layout: Layout, setpoints: list[tuple[float, ...]]) -> WindfarmSolution:
+    def __call__(
+        self, layout: Layout, setpoints: list[tuple[float, ...]]
+    ) -> WindfarmSolution:
         wakes = self.N * [None]
+        rotor_solutions = self.N * [None]
         windfield = self.superposition(self.base_windfield, [])
         for i, (x, y, z) in layout.iter_downstream():
             rotor: Rotor = self.turbines[i]
-            rotor_sol = rotor(*setpoints[i])
-            wakes[i] = self.wake_model(x, y, z, rotor_sol)
+            rotor_solutions[i] = rotor(x, y, z, windfield, *setpoints[i])
+            wakes[i] = self.wake_model(x, y, z, rotor_solutions[i])
             windfield.add_wake(wakes[i])
 
-            raise NotImplementedError
+            # raise NotImplementedError
+        return rotor_solutions, wakes, windfield
