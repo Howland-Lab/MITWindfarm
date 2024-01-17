@@ -80,7 +80,7 @@ class AD(Rotor):
         """
         self._model = Heck()
         if rotor_grid is None:
-            self.rotor_grid = Point()
+            self.rotor_grid = Area()
         else:
             self.rotor_grid = rotor_grid
 

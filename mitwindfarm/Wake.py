@@ -26,7 +26,13 @@ class Wake(ABC):
         ...
 
 
-class Gaussian(Wake):
+class WakeModel(ABC):
+    @abstractmethod
+    def __call__(self, x, y, z, rotor_sol: "RotorSolution") -> Wake:
+        ...
+
+
+class GaussianWake(Wake):
     def __init__(
         self,
         x: float,
@@ -103,3 +109,12 @@ class Gaussian(Wake):
         deficit_ = np.sqrt(2 * np.pi) * d / (16 * self.sigma) * (erf_plus - erf_minus)
 
         return deficit_ * du
+
+
+class GaussianWakeModel(WakeModel):
+    def __init__(self, sigma=0.25, kw=0.07):
+        self.sigma = sigma
+        self.kw = kw
+
+    def __call__(self, x, y, z, rotor_sol: "RotorSolution") -> GaussianWake:
+        return GaussianWake(x, y, z, rotor_sol, sigma=self.sigma, kw=self.kw)
