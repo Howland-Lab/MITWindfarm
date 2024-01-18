@@ -37,6 +37,7 @@ class RotorSolution:
     Data class representing the solution of rotor models.
     """
 
+    yaw: float
     Cp: float
     Ct: float
     Ctprime: float
@@ -110,6 +111,7 @@ class AD(Rotor):
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
+            yaw,
             sol.Cp * REWS**3,
             sol.Ct * REWS**2,
             sol.Ctprime,
@@ -168,6 +170,7 @@ class UnifiedAD(Rotor):
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
+            yaw,
             sol.Cp[0] * REWS**3,
             sol.Ct[0] * REWS**2,
             sol.Ctprime,
@@ -215,5 +218,5 @@ class BEM(Rotor):
         raise NotImplementedError
         sol: BEMSolution = self._model(pitch, tsr, yaw)
         return RotorSolution(
-            sol.Cp(), sol.Ct(), sol.Ctprime(), sol.a(), sol.u4(), sol.v4()
+            yaw, sol.Cp(), sol.Ct(), sol.Ctprime(), sol.a(), sol.u4(), sol.v4()
         )

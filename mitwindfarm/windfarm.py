@@ -12,6 +12,8 @@ from .Superposition import Superposition, Linear
 
 @dataclass
 class WindfarmSolution:
+    layout: Layout
+    setpoints: list[tuple]
     rotors: list[Rotor]
     wakes: list[Wake]
     windfield: Windfield
@@ -46,4 +48,4 @@ class Windfarm:
             wakes[i] = self.wake_model(x, y, z, rotor_solutions[i])
             windfield.add_wake(wakes[i])
 
-        return WindfarmSolution(rotor_solutions, wakes, windfield)
+        return WindfarmSolution(layout, setpoints, rotor_solutions, wakes, windfield)

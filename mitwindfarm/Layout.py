@@ -27,18 +27,27 @@ class Layout:
         self.centroid = np.vstack([self.x, self.y]).mean(axis=1).reshape([-1, 1])
 
     def rotate(
-        self, angle: float, center: Literal["origin", "centroid"] = "centroid"
+        self,
+        angle: float,
+        units: Literal["deg", "rad"] = "deg",
+        center: Literal["origin", "centroid"] = "centroid",
     ) -> "Layout":
         """
         Rotate the wind farm layout clockwise about origin or centroid by an angle (in radians).
 
         Parameters:
-        - angle: The angle of rotation in radians.
+        - angle: The angle of rotation.
+        - units: the units of the angle of rotation (default is 'deg')
         - center: Center of rotation, can be 'origin' or 'centroid' (default is 'centroid').
 
         Returns:
         A new Layout instance after rotation.
         """
+        if units == "deg":
+            angle = np.deg2rad(angle)
+        elif units != "rad":
+            raise ValueError("units is not 'deg' or 'rad'")
+
         if center == "origin":
             X0 = np.array([[0], [0]])
         elif center == "centroid":
