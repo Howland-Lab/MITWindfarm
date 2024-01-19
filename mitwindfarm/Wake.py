@@ -41,24 +41,36 @@ class GaussianWake(Wake):
         rotor_sol: "RotorSolution",
         sigma=0.25,
         kw=0.07,
+        xmax=100,
+        dx=0.05,
     ):
         self.x, self.y, self.z = x, y, z
         self.rotor_sol = rotor_sol
         self.sigma, self.kw = sigma, kw
 
-    def centerline(self, x_glob: ArrayLike, dx=0.05) -> ArrayLike:
+        # precompute centerline far downstream
+        self.x_centerline, self.y_centerline = self._centerline(xmax, dx)
+
+    def _centerline(self, xmax: float, dx: float = 0.05) -> ArrayLike:
         """
         Solves Eq. C4. Returns centerline y position in global coordinates.
         """
-        x = x_glob - self.x
-        xmax = np.max(x)
+
         _x = np.arange(0, max(xmax, 2 * dx), dx)
         d = self._wake_diameter(_x)
 
         dv = -0.5 / d**2 * (1 + erf(_x / (np.sqrt(2) / 2)))
-        _yc_temp = cumtrapz(-dv, dx=dx, initial=0)
+        _yc = cumtrapz(-dv, dx=dx, initial=0)
 
-        yc_temp = np.interp(x, _x, _yc_temp, left=0)
+        return _x, _yc
+
+    def centerline(self, x_glob: ArrayLike) -> ArrayLike:
+        """
+        Solves Eq. C4. Returns centerline y position in global coordinates.
+        """
+        x = x_glob - self.x
+
+        yc_temp = np.interp(x, self.x_centerline, self.y_centerline, left=0)
 
         return yc_temp * self.rotor_sol.v4 + self.y
 
