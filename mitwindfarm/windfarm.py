@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import Optional
 
 import numpy as np
@@ -20,6 +20,41 @@ class WindfarmSolution:
 
     def Cp(self):
         return np.mean([x.Cp for x in self.rotors])
+
+    def to_dict(self) -> dict:
+        return PartialWindfarmSolution.from_WindfarmSolution(self).to_dict()
+
+
+@dataclass
+class PartialWindfarmSolution:
+    layout: Layout
+    setpoints: list[tuple]
+    rotors: list[RotorSolution]
+
+    @classmethod
+    def from_WindfarmSolution(cls, sol: WindfarmSolution) -> "PartialWindfarmSolution":
+        return PartialWindfarmSolution(sol.layout, sol.setpoints, sol.rotors)
+
+    def to_dict(self) -> dict:
+        out = dict(
+            layout=[(x, y, z) for x, y, z in self.layout],
+            setpoints=self.setpoints,
+            rotors=[asdict(rotor) for rotor in self.rotors],
+        )
+
+        return out
+
+    @classmethod
+    def from_dict(cls, input: dict) -> "PartialWindfarmSolution":
+        xs = [loc[0] for loc in input["layout"]]
+        ys = [loc[1] for loc in input["layout"]]
+        zs = [loc[2] for loc in input["layout"]]
+
+        layout = Layout(xs, ys, zs)
+
+        rotors = [RotorSolution(**sol) for sol in input["rotors"]]
+
+        return cls(layout, input["setpoints"], rotors)
 
 
 class Windfarm:
@@ -49,3 +84,18 @@ class Windfarm:
             windfield.add_wake(wakes[i])
 
         return WindfarmSolution(layout, setpoints, rotor_solutions, wakes, windfield)
+
+    def from_partial(self, partial: PartialWindfarmSolution) -> WindfarmSolution:
+        N = len(partial.layout)
+        wakes = N * [None]
+        windfield = self.superposition(self.base_windfield, [])
+        for i, (x, y, z) in partial.layout.iter_downstream():
+            wakes[i] = self.wake_model(x, y, z, partial.rotors[i])
+            windfield.add_wake(wakes[i])
+
+        return WindfarmSolution(
+            partial.layout, partial.setpoints, partial.rotors, wakes, windfield
+        )
+
+    def from_dict(self, partial: dict) -> WindfarmSolution:
+        return self.from_partial(PartialWindfarmSolution.from_dict(partial))
