@@ -44,6 +44,7 @@ class RotorSolution:
     an: float
     u4: float
     v4: float
+    REWS: float
 
 
 class Rotor(ABC):
@@ -118,6 +119,7 @@ class AD(Rotor):
             sol.an * REWS,
             sol.u4 * REWS,
             sol.v4 * REWS,
+            REWS,
         )
 
 
@@ -177,6 +179,7 @@ class UnifiedAD(Rotor):
             sol.an[0] * REWS,
             sol.u4[0] * REWS,
             sol.v4[0] * REWS,
+            REWS,
         )
 
 
@@ -218,5 +221,12 @@ class BEM(Rotor):
         raise NotImplementedError
         sol: BEMSolution = self._model(pitch, tsr, yaw)
         return RotorSolution(
-            yaw, sol.Cp(), sol.Ct(), sol.Ctprime(), sol.a(), sol.u4(), sol.v4()
+            yaw,
+            sol.Cp(),
+            sol.Ct(),
+            sol.Ctprime(),
+            sol.a(),
+            sol.u4(),
+            sol.v4(),
+            sol.REWS(),
         )

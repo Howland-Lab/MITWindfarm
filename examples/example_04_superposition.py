@@ -23,11 +23,11 @@ if __name__ == "__main__":
     layout = Layout([0, 2, 4, 2, 0], [0, 0.5, 1, -2, 2])
 
     rotor_sols = [
-        RotorSolution(0, 0, 0, 0, 0, 0.5, 0.1),
-        RotorSolution(0, 0, 0, 0, 0, 0.5, -0.1),
-        RotorSolution(0, 0, 0, 0, 0, 0.5, 0.1),
-        RotorSolution(0, 0, 0, 0, 0, 0.5, 0.5),
-        RotorSolution(0, 0, 0, 0, 0, 0.8, -0.5),
+        RotorSolution(0, 0, 0, 0, 0, 0.5, 0.1, 1.0),
+        RotorSolution(0, 0, 0, 0, 0, 0.5, -0.1, 1.0),
+        RotorSolution(0, 0, 0, 0, 0, 0.5, 0.1, 1.0),
+        RotorSolution(0, 0, 0, 0, 0, 0.5, 0.5, 1.0),
+        RotorSolution(0, 0, 0, 0, 0, 0.8, -0.5, 1.0),
     ]
     wake_model = GaussianWakeModel()
     wakes = [wake_model(x, y, z, sol) for (x, y, z), sol in zip(layout, rotor_sols)]
