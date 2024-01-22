@@ -79,3 +79,27 @@ class Layout:
         """
         for i in np.argsort(self.x):
             yield i, (self.x[i], self.y[i], self.z[i])
+
+class GridLayout(Layout):
+    def __init__(self, Sx:float, Sy:float, Nx:int, Ny:int, offset:float=0):
+        """
+        Sx, Sy: streamwise and spanwise spacing respectively
+        Nx, Ny: streamwise and spanwise number of turbines respectively
+        offset: 0.0 is no offset, 1.0 is fully offset layout
+        """
+        # Define grid layout
+        xdim = np.linspace(0,(Nx-1)*Sx,Nx)
+        ydim = np.linspace(0,(Ny-1)*Sy,Ny)
+        xs = np.array([])
+        ys = np.array([])
+        for i, x in enumerate(xdim):
+            curr_off = 0.5*offset*Sy*i
+            for j, y in enumerate(ydim):
+                xs = np.append(xs,[x])
+                ys = np.append(ys,[y+curr_off])
+        self.x = xs
+        self.y = ys
+        self.z = np.zeros_like(self.x)
+
+        # Calculate the centroid for later use
+        self.centroid = np.vstack([self.x, self.y]).mean(axis=1).reshape([-1, 1])
