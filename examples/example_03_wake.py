@@ -11,7 +11,7 @@ FIGDIR.mkdir(exist_ok=True, parents=True)
 
 
 if __name__ == "__main__":
-    rotor_sol = RotorSolution(0, 0, 0, 0, 0, 0.5, 0.1)
+    rotor_sol = RotorSolution(0, 0, 0, 0, 0, 0.5, 0.1, 1.0)
 
 
     wake_model = GaussianWakeModel()

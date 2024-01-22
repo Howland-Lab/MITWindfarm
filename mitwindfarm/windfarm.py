@@ -4,7 +4,7 @@ from typing import Optional
 import numpy as np
 
 from .Layout import Layout
-from .Rotor import Rotor, AD
+from .Rotor import Rotor, AD, RotorSolution
 from .Windfield import Windfield, Uniform
 from .Wake import WakeModel, Wake, GaussianWakeModel
 from .Superposition import Superposition, Linear
@@ -14,7 +14,7 @@ from .Superposition import Superposition, Linear
 class WindfarmSolution:
     layout: Layout
     setpoints: list[tuple]
-    rotors: list[Rotor]
+    rotors: list[RotorSolution]
     wakes: list[Wake]
     windfield: Windfield
 
