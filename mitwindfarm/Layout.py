@@ -100,3 +100,6 @@ class GridLayout(Layout):
                 ys = np.append(ys, [y + curr_off])
 
         super().__init__(xs, ys)
+class Square(GridLayout):
+    def __init__(self, S: float, N: int):
+        super().__init__(S, S, N, N, offset=0)
