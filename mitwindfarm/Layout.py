@@ -88,6 +88,11 @@ class GridLayout(Layout):
         Nx, Ny: streamwise and spanwise number of turbines respectively
         offset: 0.0 is no offset, 1.0 is fully offset layout
         """
+        self.Sx = Sx
+        self.Sy = Sy
+        self.Nx = Nx
+        self.Ny = Ny
+        self.offset = offset
         # Define grid layout
         xdim = np.linspace(0, (Nx - 1) * Sx, Nx)
         ydim = np.linspace(0, (Ny - 1) * Sy, Ny)
