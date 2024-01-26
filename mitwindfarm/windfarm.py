@@ -18,6 +18,7 @@ class WindfarmSolution:
     wakes: list[Wake]
     windfield: Windfield
 
+    @property
     def Cp(self):
         return np.mean([x.Cp for x in self.rotors])
 
