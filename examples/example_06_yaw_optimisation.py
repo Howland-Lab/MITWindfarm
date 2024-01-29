@@ -21,7 +21,7 @@ def solve_for_setpoints(x) -> WindfarmSolution:
 
 def objective_func(x):
     windfarm_sol = solve_for_setpoints(x)
-    return -windfarm_sol.Cp()
+    return -windfarm_sol.Cp
 
 
 if __name__ == "__main__":
@@ -35,9 +35,9 @@ if __name__ == "__main__":
     Plotting.plot_windfarm(windfarm_sol_ref, axes[0])
     Plotting.plot_windfarm(windfarm_sol_opt, axes[1])
 
-    axes[0].set_title(f"$C_P$: {windfarm_sol_ref.Cp():2.3f}")
+    axes[0].set_title(f"$C_P$: {windfarm_sol_ref.Cp:2.3f}")
     axes[1].set_title(
-        f"$C_P$: {windfarm_sol_opt.Cp():2.3f} ({100*(windfarm_sol_opt.Cp()/windfarm_sol_ref.Cp() - 1):+2.1f}%)"
+        f"$C_P$: {windfarm_sol_opt.Cp:2.3f} ({100*(windfarm_sol_opt.Cp/windfarm_sol_ref.Cp - 1):+2.1f}%)"
     )
 
     plt.savefig(
