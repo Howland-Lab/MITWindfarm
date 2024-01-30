@@ -82,7 +82,8 @@ class Layout:
 
 
 class GridLayout(Layout):
-    def __init__(self, Sx: float, Sy: float, Nx: int, Ny: int, offset: float = 0):
+    def __init__(self, Sx: float, Sy: float, Nx: int, Ny: int, offset: float = 0,
+                 shape = 'stag'):
         """
         Sx, Sy: streamwise and spanwise spacing respectively
         Nx, Ny: streamwise and spanwise number of turbines respectively
@@ -98,11 +99,18 @@ class GridLayout(Layout):
         ydim = np.linspace(0, (Ny - 1) * Sy, Ny)
         xs = np.array([])
         ys = np.array([])
-        for i, x in enumerate(xdim):
-            curr_off = 0.5 * offset * Sy * i
-            for j, y in enumerate(ydim):
-                xs = np.append(xs, [x])
-                ys = np.append(ys, [y + curr_off])
+        if shape == 'trap':
+            for i, x in enumerate(xdim):
+                curr_off = 0.5 * offset * Sy * i
+                for j, y in enumerate(ydim):
+                    xs = np.append(xs, [x])
+                    ys = np.append(ys, [y + curr_off])
+        if shape == 'stag':
+            for i, x in enumerate(xdim):
+                curr_off = 0.5 * offset * Sy * (i % 2)
+                for j, y in enumerate(ydim):
+                    xs = np.append(xs, [x])
+                    ys = np.append(ys, [y + curr_off])
 
         super().__init__(xs, ys)
 class Square(GridLayout):
