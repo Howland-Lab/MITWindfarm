@@ -82,37 +82,73 @@ class Layout:
 
 
 class GridLayout(Layout):
-    def __init__(self, Sx: float, Sy: float, Nx: int, Ny: int, offset: float = 0,
-                 shape = 'stag'):
+    def __init__(
+        self,
+        Sx: float,
+        Sy: float,
+        Nx: int,
+        Ny: int,
+        offset: float = 0,
+        shape: Literal["stag", "trap"] = "stag",
+    ):
         """
-        Sx, Sy: streamwise and spanwise spacing respectively
-        Nx, Ny: streamwise and spanwise number of turbines respectively
-        offset: 0.0 is no offset, 1.0 is fully offset layout
+        Initialize a grid layout for turbines.
+
+        Parameters:
+        - Sx (float): Streamwise spacing between turbines.
+        - Sy (float): Spanwise spacing between turbines.
+        - Nx (int): Number of turbines in the streamwise direction.
+        - Ny (int): Number of turbines in the spanwise direction.
+        - offset (float, optional): Y offset. 0.0 is no offset, 1.0 is fully offset layout.
+          Default is 0.
+        - shape (Literal["stag", "trap"], optional): Grid shape. Either staggered ("stag") or
+          trapezoidal ("trap"). Default is "stag".
+
+        Attributes:
+        - Sx (float): Streamwise spacing between turbines.
+        - Sy (float): Spanwise spacing between turbines.
+        - Nx (int): Number of turbines in the streamwise direction.
+        - Ny (int): Number of turbines in the spanwise direction.
+        - offset (float): Y offset for the layout.
+        - xs (numpy.ndarray): Flattened array of turbine x-coordinates.
+        - ys (numpy.ndarray): Flattened array of turbine y-coordinates.
+
+        Raises:
+        - ValueError: If the specified shape is not "stag" or "trap".
+
+        This class generates a grid layout of turbines based on the provided parameters.
+        The layout can be either staggered ("stag") or trapezoidal ("trap"), and turbines
+        can be offset in the y-direction.
+
+        Example:
+        ```python
+        grid_layout = GridLayout(Sx=2.0, Sy=1.5, Nx=4, Ny=3, offset=0.5, shape="trap")
+        ```
         """
+        Sx, Sy = float(Sx), float(Sy)
         self.Sx = Sx
         self.Sy = Sy
         self.Nx = Nx
         self.Ny = Ny
         self.offset = offset
-        # Define grid layout
-        xdim = np.linspace(0, (Nx - 1) * Sx, Nx)
-        ydim = np.linspace(0, (Ny - 1) * Sy, Ny)
-        xs = np.array([])
-        ys = np.array([])
-        if shape == 'trap':
-            for i, x in enumerate(xdim):
-                curr_off = 0.5 * offset * Sy * i
-                for j, y in enumerate(ydim):
-                    xs = np.append(xs, [x])
-                    ys = np.append(ys, [y + curr_off])
-        if shape == 'stag':
-            for i, x in enumerate(xdim):
-                curr_off = 0.5 * offset * Sy * (i % 2)
-                for j, y in enumerate(ydim):
-                    xs = np.append(xs, [x])
-                    ys = np.append(ys, [y + curr_off])
 
+        x = Sx * np.arange(0, Nx)
+        y = Sy * np.arange(0, Ny)
+        xmesh, ymesh = np.meshgrid(x, y)
+        if shape == "trap":
+            y_offset = 0.5 * Sy * offset * np.arange(0, Nx)
+
+        elif shape == "stag":
+            y_offset = 0.5 * Sy * offset * np.array([x % 2 for x in range(Nx)])
+        else:
+            raise ValueError(f"shape {shape} not defined.")
+        ymesh += y_offset
+
+        xs = xmesh.flatten()
+        ys = ymesh.flatten()
         super().__init__(xs, ys)
+
+
 class Square(GridLayout):
     def __init__(self, S: float, N: int):
         super().__init__(S, S, N, N, offset=0)
