@@ -185,13 +185,15 @@ class UnifiedAD(Rotor):
 
 class BEM(Rotor):
     """
-    Blade Element Momentum (BEM) rotor model.
+    Blade Element Momentum (BEM) rotor model. Note: MITRotor is formulated in
+    terms of rotor radius, whereas MITWindfarm is in rotor diameters.
+    Conversions MUST be made between the two normalizations in this class.
 
-    Attributes:
-    - rotor_definition (RotorDefinition): Definition of the rotor parameters.
+    Attributes: - rotor_definition (RotorDefinition): Definition of the rotor
+    parameters.
 
-    Methods:
-    - __call__(pitch, tsr, yaw): Calculate the rotor solution for given pitch, TSR, and yaw inputs.
+    Methods: - __call__(pitch, tsr, yaw): Calculate the rotor solution for given
+    pitch, TSR, and yaw inputs.
     """
 
     def __init__(self, rotor_definition: RotorDefinition, **kwargs):
@@ -203,6 +205,11 @@ class BEM(Rotor):
         - **kwargs: Additional keyword arguments passed to the underlying BEM model.
         """
         self._model = _BEM(rotor_definition, **kwargs)
+        self.xgrid_loc, self.ygrid_loc, self.zgrid_loc = self._model.sample_points()
+        # Convert from radius to diameter normalization
+        self.xgrid_loc /= 2
+        self.ygrid_loc /= 2
+        self.zgrid_loc /= 2
 
     def __call__(
         self, x: float, y: float, z: float, windfield: Windfield, pitch, tsr, yaw
@@ -218,8 +225,13 @@ class BEM(Rotor):
         Returns:
         RotorSolution: The calculated rotor solution.
         """
-        raise NotImplementedError
-        sol: BEMSolution = self._model(pitch, tsr, yaw)
+        xs_glob = self.xgrid_loc + x
+        ys_glob = self.ygrid_loc + y
+        zs_glob = self.zgrid_loc + z
+
+        U = windfield.wsp(xs_glob, ys_glob, zs_glob)
+        wdir = windfield.wdir(xs_glob, ys_glob, zs_glob)
+        sol: BEMSolution = self._model(pitch, tsr, yaw, U, wdir)
         return RotorSolution(
             yaw,
             sol.Cp(),
@@ -228,5 +240,5 @@ class BEM(Rotor):
             sol.a(),
             sol.u4(),
             sol.v4(),
-            sol.REWS(),
+            sol.U(),
         )
