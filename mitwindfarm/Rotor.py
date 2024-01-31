@@ -23,6 +23,7 @@ Note: Make sure to replace '...' with the actual parameters in RotorDefinition.
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import Any
 
 from UnifiedMomentumModel.Momentum import Heck, UnifiedMomentum, MomentumSolution
 from MITRotor.BEM import BEM as _BEM
@@ -45,6 +46,7 @@ class RotorSolution:
     u4: float
     v4: float
     REWS: float
+    extra: Any = None
 
 
 class Rotor(ABC):
@@ -120,6 +122,7 @@ class AD(Rotor):
             sol.u4 * REWS,
             sol.v4 * REWS,
             REWS,
+            extra=sol,
         )
 
 
@@ -180,6 +183,7 @@ class UnifiedAD(Rotor):
             sol.u4[0] * REWS,
             sol.v4[0] * REWS,
             REWS,
+            extra=sol,
         )
 
 
@@ -241,4 +245,5 @@ class BEM(Rotor):
             sol.u4(),
             sol.v4(),
             sol.U(),
+            extra=sol,
         )
