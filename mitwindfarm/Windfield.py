@@ -101,6 +101,29 @@ class Uniform(Windfield):
         return np.zeros_like(x)
 
 
+class PowerLaw(Windfield):
+    def __init__(self, Uref: float, zref: float, exp: float):
+        self.Uref = Uref
+        self.zref = zref
+        self.exp = exp
+
+    def shear(self, y):
+        """
+        Returns wind speed due to shear.
+        """
+        u = self.Uref * (y / self.zref) ** self.exp
+        u = np.nan_to_num(u)
+        return u
+
+    def wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        u = self.Uref * (z / self.zref) ** self.exp
+        u = np.nan_to_num(u)
+        return u
+
+    def wdir(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        return np.zeros_like(x)
+
+
 class Superimposed(Windfield):
     def __init__(
         self,
