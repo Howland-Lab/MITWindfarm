@@ -200,7 +200,7 @@ class BEM(Rotor):
     pitch, TSR, and yaw inputs.
     """
 
-    def __init__(self, rotor_definition: RotorDefinition, **kwargs):
+    def __init__(self, rotor_definition: RotorDefinition, BEM_model=None, **kwargs):
         """
         Initialize the BEM rotor model with the given rotor definition.
 
@@ -208,7 +208,8 @@ class BEM(Rotor):
         - rotor_definition (RotorDefinition): Definition of the rotor parameters.
         - **kwargs: Additional keyword arguments passed to the underlying BEM model.
         """
-        self._model = _BEM(rotor_definition, **kwargs)
+        BEM_model = BEM_model or _BEM
+        self._model = BEM_model(rotor_definition, **kwargs)
         self.xgrid_loc, self.ygrid_loc, self.zgrid_loc = self._model.sample_points()
         # Convert from radius to diameter normalization
         self.xgrid_loc /= 2
