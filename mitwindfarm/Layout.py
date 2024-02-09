@@ -125,7 +125,7 @@ class GridLayout(Layout):
         grid_layout = GridLayout(Sx=2.0, Sy=1.5, Nx=4, Ny=3, offset=0.5, shape="trap")
         ```
         """
-        Sx, Sy = float(Sx), float(Sy)
+        # Sx, Sy = float(Sx), float(Sy)
         self.Sx = Sx
         self.Sy = Sy
         self.Nx = Nx
