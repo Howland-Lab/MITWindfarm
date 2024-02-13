@@ -22,7 +22,8 @@ class Layout:
         self.y = ys
         
         if zs is None:
-            self.z = np.zeros_like(self.x)
+            # self.z = np.zeros_like(self.x)
+            self.z = np.zeros(self.x.size)
         else:
             self.z = np.array(zs)
 
@@ -31,7 +32,7 @@ class Layout:
         self.x_centroid = np.mean(self.x)
         self.y_centroid = np.mean(self.y)
         # self.centroid = [[np.mean(self.x)], [np.mean(self.y)]]
-        breakpoint()
+        # breakpoint()
 
     def rotate(
         self,
