@@ -16,15 +16,22 @@ class Layout:
         - ys: List of y-coordinates.
         - zs: List of z-coordinates (optional, default is zero for all points).
         """
-        self.x = np.array(xs)
-        self.y = np.array(ys)
+        # self.x = np.array(xs)
+        # self.y = np.array(ys)
+        self.x = xs
+        self.y = ys
+        
         if zs is None:
             self.z = np.zeros_like(self.x)
         else:
             self.z = np.array(zs)
 
         # Calculate the centroid for later use
-        self.centroid = np.vstack([self.x, self.y]).mean(axis=1).reshape([-1, 1])
+        # self.centroid = np.vstack([self.x, self.y]).mean(axis=1).reshape([-1, 1])
+        self.x_centroid = np.mean(self.x)
+        self.y_centroid = np.mean(self.y)
+        # self.centroid = [[np.mean(self.x)], [np.mean(self.y)]]
+        breakpoint()
 
     def rotate(
         self,
@@ -49,15 +56,22 @@ class Layout:
             raise ValueError("units is not 'deg' or 'rad'")
 
         if center == "origin":
-            X0 = np.array([[0], [0]])
+            # X0 = np.array([[0], [0]])
+            x_0 = 0
+            y_0 = 0
         elif center == "centroid":
-            X0 = self.centroid
+            # X0 = self.centroid
+            x_0 = self.x_centroid
+            y_0 = self.y_centroid
 
-        X = np.vstack([self.x, self.y])
-        rot_mat = np.array(
-            [[np.cos(angle), np.sin(angle)], [-np.sin(angle), np.cos(angle)]]
-        )
-        x_new, y_new = rot_mat @ (X - X0) + X0
+        # X = np.vstack([self.x, self.y])
+        # rot_mat = np.array(
+        #     [[np.cos(angle), np.sin(angle)], [-np.sin(angle), np.cos(angle)]]
+        # )
+            
+        x_new = self.x * np.cos(angle) + self.y * (- np.sin(angle))
+        y_new = self.x * np.sin(angle) + self.y * np.cos(angle)
+        # x_new, y_new = rot_mat @ (X - X0) + X0
 
         return Layout(x_new, y_new, self.z)
 
@@ -77,6 +91,7 @@ class Layout:
         Returns:
         An iterable of tuples representing the sorted layout.
         """
+        # breakpoint()
         for i in np.argsort(self.x):
             yield i, (self.x[i], self.y[i], self.z[i])
 
@@ -135,6 +150,7 @@ class GridLayout(Layout):
         x = Sx * np.arange(0, Nx)
         y = Sy * np.arange(0, Ny)
         xmesh, ymesh = np.meshgrid(x, y)
+        # breakpoint()
         if shape == "trap":
             y_offset = 0.5 * Sy * offset * np.arange(0, Nx)
 
@@ -146,6 +162,7 @@ class GridLayout(Layout):
 
         xs = xmesh.flatten()
         ys = ymesh.flatten()
+        # breakpoint()
         super().__init__(xs, ys)
 
 
