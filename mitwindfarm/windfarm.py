@@ -74,7 +74,7 @@ class Windfarm:
     def __call__(
         self, layout: Layout, setpoints: list[tuple[float, ...]]
     ) -> WindfarmSolution:
-        N = len(layout)
+        N = layout.x.size
         wakes = N * [None]
         rotor_solutions = N * [None]
 
