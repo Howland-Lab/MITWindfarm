@@ -41,7 +41,7 @@ class GaussianWake(Wake):
         rotor_sol: "RotorSolution",
         sigma=0.25,
         kw=0.07,
-        xmax=100,
+        xmax=200,
         dx=0.05,
     ):
         self.x, self.y, self.z = x, y, z
