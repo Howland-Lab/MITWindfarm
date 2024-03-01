@@ -8,8 +8,8 @@ def plot_windfarm(sol: WindfarmSolution, ax=None, pad=1, frame=True, axis=False)
     if ax is None:
         _, ax = plt.subplots()
 
-    xlim = (sol.layout.x.min() - pad, sol.layout.x.max() + 10)
-    ylim = (sol.layout.y.min() - pad, sol.layout.y.max() + pad)
+    xlim = (np.min(sol.layout.x) - pad, np.max(sol.layout.x) + 10)
+    ylim = (np.min(sol.layout.y) - pad, np.max(sol.layout.y) + pad)
 
     # plot windfield and turbine stats
     _x, _y = np.linspace(*xlim, 400), np.linspace(*ylim, 401)
