@@ -72,6 +72,9 @@ class Uniform(Windfield):
     - wdir(x, y, z): Returns an array of zeros with the same shape as input coordinates.
     """
 
+    def __init__(self, U0: float = 1.0):
+        self.U0 = U0
+
     def wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """
         Returns an array of ones with the same shape as input coordinates.
@@ -84,7 +87,7 @@ class Uniform(Windfield):
         Returns:
         ArrayLike: Array of ones with the same shape as input coordinates.
         """
-        return np.ones_like(x)
+        return self.U0 * np.ones_like(x)
 
     def wdir(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """

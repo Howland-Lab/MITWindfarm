@@ -21,6 +21,7 @@ Usage Example:
 
 Note: Make sure to replace '...' with the actual parameters in RotorDefinition.
 """
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
@@ -235,16 +236,19 @@ class BEM(Rotor):
         zs_glob = self.zgrid_loc + z
 
         U = windfield.wsp(xs_glob, ys_glob, zs_glob)
+        REWS = self._model.geometry.rotor_average(
+            self._model.geometry.annulus_average(U)
+        )
         wdir = windfield.wdir(xs_glob, ys_glob, zs_glob)
-        sol: BEMSolution = self._model(pitch, tsr, yaw, U, wdir)
+        sol: BEMSolution = self._model(pitch, tsr, yaw, U / REWS, wdir)
         return RotorSolution(
             yaw,
-            sol.Cp(),
-            sol.Ct(),
+            sol.Cp() * REWS**3,
+            sol.Ct() * REWS**2,
             sol.Ctprime(),
-            sol.a(),
-            sol.u4(),
-            sol.v4(),
-            sol.U(),
+            sol.a() * REWS,
+            sol.u4() * REWS,
+            sol.v4() * REWS,
+            REWS,
             extra=sol,
         )
