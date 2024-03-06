@@ -4,7 +4,7 @@ import numpy as np
 from .windfarm import WindfarmSolution
 
 
-def plot_windfarm(sol: WindfarmSolution, ax=None, pad=1, frame=True, axis=False):
+def plot_windfarm(sol: WindfarmSolution, ax=None, pad=1, frame=True, axis=False, res: int=400):
     if ax is None:
         _, ax = plt.subplots()
 
@@ -12,7 +12,7 @@ def plot_windfarm(sol: WindfarmSolution, ax=None, pad=1, frame=True, axis=False)
     ylim = (np.min(sol.layout.y) - pad, np.max(sol.layout.y) + pad)
 
     # plot windfield and turbine stats
-    _x, _y = np.linspace(*xlim, 400), np.linspace(*ylim, 401)
+    _x, _y = np.linspace(*xlim, res), np.linspace(*ylim, res)
     xmesh, ymesh = np.meshgrid(_x, _y)
 
     wsp = sol.windfield.wsp(xmesh, ymesh, np.zeros_like(xmesh))
