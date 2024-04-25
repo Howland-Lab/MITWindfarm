@@ -16,8 +16,9 @@ class Layout:
         - ys: List of y-coordinates.
         - zs: List of z-coordinates (optional, default is zero for all points).
         """
-        self.x = xs
-        self.y = ys
+        self.x = np.array(xs) if isinstance(xs, list) else xs
+        self.y = np.array(ys) if isinstance(ys, list) else ys
+
         if zs is None:
             self.z = np.zeros_like(self.x)
         else:
@@ -56,11 +57,8 @@ class Layout:
             x_0 = self.x_centroid
             y_0 = self.y_centroid
 
-        x_new = (self.x - x_0) * np.cos(angle) + (self.y - y_0) * (
-            - np.sin(angle)) + x_0
-        y_new = (self.x - x_0) * np.sin(angle) + (self.y - y_0) * (
-            np.cos(angle)) + y_0
-
+        x_new = (self.x - x_0) * np.cos(angle) + (self.y - y_0) * (-np.sin(angle)) + x_0
+        y_new = (self.x - x_0) * np.sin(angle) + (self.y - y_0) * (np.cos(angle)) + y_0
 
         return Layout(x_new, y_new, self.z)
 

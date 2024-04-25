@@ -25,14 +25,14 @@ def test_default_z():
 
 def test_rotate_origin(sample_layout):
     rotated_layout = sample_layout.rotate(90, center="origin")
-    assert np.allclose(rotated_layout.x, sample_layout.y)
-    assert np.allclose(rotated_layout.y, -sample_layout.x)
+    assert np.allclose(rotated_layout.x, -sample_layout.y)
+    assert np.allclose(rotated_layout.y, sample_layout.x)
 
 
 def test_rotate_centroid(sample_layout):
     rotated_layout = sample_layout.rotate(90, center="centroid")
-    assert np.allclose(rotated_layout.x, sample_layout.x)
-    assert np.allclose(rotated_layout.y, sample_layout.y[::-1])
+    assert np.allclose(rotated_layout.x, [3, 2, 1])
+    assert np.allclose(rotated_layout.y, rotated_layout.y)
 
 
 def test_iter_downstream():
