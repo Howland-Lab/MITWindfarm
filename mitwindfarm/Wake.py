@@ -49,6 +49,9 @@ class GaussianWake(Wake):
         # precompute centerline far downstream
         self.x_centerline, self.y_centerline = self._centerline(xmax, dx)
 
+    def __repr__(self):
+        return f"GaussianWake(x={self.x}, y={self.y}, z={self.z}, sigma={self.sigma}, kw={self.kw})"
+
     def _centerline(self, xmax: float, dx: float = 0.05) -> ArrayLike:
         """
         Solves Eq. C4. Returns centerline y position in global coordinates.
