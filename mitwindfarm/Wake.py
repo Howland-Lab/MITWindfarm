@@ -12,9 +12,7 @@ if TYPE_CHECKING:
 
 class Wake(ABC):
     @abstractmethod
-    def __init__(
-        self, x: float, y: float, z: float, rotor_sol: "RotorSolution", **kwargs
-    ):
+    def __init__(self, x: float, y: float, z: float, rotor_sol: "RotorSolution", **kwargs):
         ...
 
     @abstractmethod
@@ -97,11 +95,7 @@ class GaussianWake(Wake):
         d = self._wake_diameter(x)
         yc = self.centerline(x_glob) - self.y
         du = self._du(x, wake_diameter=d)
-        deficit_ = (
-            1
-            / (8 * self.sigma**2)
-            * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
-        )
+        deficit_ = 1 / (8 * self.sigma**2) * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
 
         return deficit_ * du
 

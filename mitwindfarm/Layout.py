@@ -28,6 +28,11 @@ class Layout:
         self.x_centroid = np.mean(self.x)
         self.y_centroid = np.mean(self.y)
 
+    def __repr__(self):
+        x_repr = np.array2string(self.x, separator=", ")
+        y_repr = np.array2string(self.y, separator=", ")
+        return f"Layout(x={x_repr}, y={y_repr})"
+
     def rotate(
         self,
         angle: float,
