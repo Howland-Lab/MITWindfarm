@@ -6,7 +6,7 @@ authors = ["Jaime Liew <jaimeliew1@gmail.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.9"
 numpy = ">=1.16.5"
 scipy = ">=1.6"
 mitrotor = {git = "https://github.com/Howland-Lab/MITRotor.git"}
