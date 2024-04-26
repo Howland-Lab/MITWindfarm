@@ -20,6 +20,14 @@ class Wake(ABC):
         ...
 
     @abstractmethod
+    def wake_added_turbulence(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        ...
+
+    @abstractmethod
+    def deficit_and_WATI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        ...
+
+    @abstractmethod
     def centerline(self, x: ArrayLike) -> ArrayLike:
         ...
 
@@ -37,14 +45,16 @@ class GaussianWake(Wake):
         y: float,
         z: float,
         rotor_sol: "RotorSolution",
-        sigma=0.25,
-        kw=0.07,
-        xmax=100,
-        dx=0.05,
+        sigma: float = 0.25,
+        kw: float = 0.07,
+        TIamb: float = None,
+        xmax: float = 100.0,
+        dx: float = 0.05,
     ):
         self.x, self.y, self.z = x, y, z
         self.rotor_sol = rotor_sol
         self.sigma, self.kw = sigma, kw
+        self.TIamb = TIamb or 0.0
 
         # precompute centerline far downstream
         self.x_centerline, self.y_centerline = self._centerline(xmax, dx)
@@ -75,6 +85,21 @@ class GaussianWake(Wake):
 
         return yc_temp * self.rotor_sol.v4 + self.y
 
+    def centerline_wake_added_turb(self, x_glob: ArrayLike) -> ArrayLike:
+        """
+        Returns the centerline wake-added turbulence intensity (WATI) based on
+        the model by Crespo and Hernandez (1996).
+        """
+        if self.TIamb is None or self.TIamb == 0.0:
+            return np.zeros_like(x_glob)
+
+        else:
+            x = x_glob - self.x
+            with np.errstate(all="ignore"):
+                WATI = 0.73 * self.rotor_sol.an**0.8325 * self.TIamb ** (-0.0325) * np.maximum(x, 0.1) ** (-0.32)
+            WATI[x < 0.1] = 0.0
+            return WATI
+
     def _wake_diameter(self, x: ArrayLike) -> ArrayLike:
         """
         Solves the normalized far-wake diameter (between C1 and C2)
@@ -98,9 +123,36 @@ class GaussianWake(Wake):
         d = self._wake_diameter(x)
         yc = self.centerline(x_glob) - self.y
         du = self._du(x, wake_diameter=d)
-        deficit_ = 1 / (8 * self.sigma**2) * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
+        gaussian_ = 1 / (8 * self.sigma**2) * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
 
-        return deficit_ * du
+        return gaussian_ * du
+
+    def wake_added_turbulence(self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0) -> ArrayLike:
+        """
+        Returns wake added turbulence intensity caused by a wake at particular
+        points in space. Laterally smeared with the same gaussian as the wake
+        deficit model.
+        """
+        x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
+        d = self._wake_diameter(x)
+        yc = self.centerline(x_glob) - self.y
+        WATI = self.centerline_wake_added_turb(x)
+        gaussian_ = 1 / (8 * self.sigma**2) * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
+
+        return gaussian_ * np.nan_to_num(WATI)
+
+    def deficit_and_WATI(self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0) -> tuple[ArrayLike, ArrayLike]:
+        """
+        returns both the wake deficit and wake-added turbulence intensity at a point in space.
+        """
+        x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
+        d = self._wake_diameter(x)
+        yc = self.centerline(x_glob) - self.y
+        du = self._du(x, wake_diameter=d)
+        WATI = self.centerline_wake_added_turb(x)
+        gaussian_ = 1 / (8 * self.sigma**2) * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
+
+        return gaussian_ * du, gaussian_ * WATI
 
     def line_deficit(self, x: np.array, y: np.array):
         """
@@ -127,6 +179,11 @@ class GaussianWakeModel(WakeModel):
         self.xmax = xmax
 
 
+<<<<<<< HEAD
     def __call__(self, x, y, z, rotor_sol: "RotorSolution") -> GaussianWake:
         return GaussianWake(x, y, z, rotor_sol, sigma=self.sigma, kw=self.kw,
                             xmax = self.xmax)
+=======
+    def __call__(self, x, y, z, rotor_sol: "RotorSolution", TIamb: float = None) -> GaussianWake:
+        return GaussianWake(x, y, z, rotor_sol, sigma=self.sigma, kw=self.kw, TIamb=TIamb)
+>>>>>>> 0ce6daf (add added_TI)

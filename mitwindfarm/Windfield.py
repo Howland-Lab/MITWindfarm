@@ -48,6 +48,36 @@ class Windfield(ABC):
         pass
 
     @abstractmethod
+    def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Calculate turbulence intensity at specified coordinates.
+
+        Parameters:
+        - x: x-coordinates.
+        - y: y-coordinates.
+        - z: z-coordinates.
+
+        Returns:
+        ArrayLike: Wind speed at the specified coordinates.
+        """
+        pass
+
+    @abstractmethod
+    def wsp_and_TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Calculate wind speed and turbulence intensity at specified coordinates.
+
+        Parameters:
+        - x: x-coordinates.
+        - y: y-coordinates.
+        - z: z-coordinates.
+
+        Returns:
+        ArrayLike: Wind speed at the specified coordinates.
+        """
+        pass
+
+    @abstractmethod
     def wdir(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """
         Calculate wind direction at specified coordinates.
@@ -72,8 +102,9 @@ class Uniform(Windfield):
     - wdir(x, y, z): Returns an array of zeros with the same shape as input coordinates.
     """
 
-    def __init__(self, U0: float = 1.0):
+    def __init__(self, U0: float = 1.0, TIamb: float = 0.0):
         self.U0 = U0
+        self.TIamb = TIamb
 
     def wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """
@@ -88,6 +119,35 @@ class Uniform(Windfield):
         ArrayLike: Array of ones with the same shape as input coordinates.
         """
         return self.U0 * np.ones_like(x)
+
+    def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Calculate wind speed and turbulence intensity at specified coordinates.
+
+        Parameters:
+        - x: x-coordinates.
+        - y: y-coordinates.
+        - z: z-coordinates.
+
+        Returns:
+        ArrayLike: Wind speed at the specified coordinates.
+        """
+        return self.TIamb * np.ones_like(x)
+
+    def wsp_and_TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Calculate wind speed and turbulence intensity at specified coordinates.
+
+        Parameters:
+        - x: x-coordinates.
+        - y: y-coordinates.
+        - z: z-coordinates.
+
+        Returns:
+        ArrayLike: Wind speed at the specified coordinates.
+        """
+        ones = np.ones_like(x)
+        return self.U0 * ones, self.TIamb * ones
 
     def wdir(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """
@@ -105,10 +165,11 @@ class Uniform(Windfield):
 
 
 class PowerLaw(Windfield):
-    def __init__(self, Uref: float, zref: float, exp: float):
+    def __init__(self, Uref: float, zref: float, exp: float, TIamb: float = 0.0):
         self.Uref = Uref
         self.zref = zref
         self.exp = exp
+        self.TIamb = TIamb
 
     def shear(self, y):
         """
@@ -122,6 +183,23 @@ class PowerLaw(Windfield):
         u = self.Uref * (z / self.zref) ** self.exp
         u = np.nan_to_num(u)
         return u
+
+    def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        return self.TIamb * np.ones_like(x)
+
+    def wsp_and_TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Calculate wind speed and turbulence intensity at specified coordinates.
+
+        Parameters:
+        - x: x-coordinates.
+        - y: y-coordinates.
+        - z: z-coordinates.
+
+        Returns:
+        ArrayLike: Wind speed at the specified coordinates.
+        """
+        return self.wsp(x, y, z), self.TIamb * np.ones_like(x)
 
     def wdir(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         return np.zeros_like(x)
@@ -166,6 +244,37 @@ class Superimposed(Windfield):
             raise NotImplementedError
 
         return out
+
+    def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        base = self.base_windfield.TI(x, y, z)
+        WATIs = np.array([wake.wake_added_turbulence(x, y, z) for wake in self.wakes])
+
+        out = np.sqrt(base**2 + np.max(WATIs, axis=0) ** 2)
+
+        return out
+
+    def wsp_and_TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        wsp_base, TI_base = self.base_windfield.wsp_and_TI(x, y, z)
+        deficits, WATIs = [], []
+        for wake in self.wakes:
+            _deficit, _WATI = wake.deficit_and_WATI(x, y, z)
+            deficits.append(_deficit)
+            WATIs.append(_WATI)
+
+        deficits = np.array(deficits)
+        WATIs = np.array(WATIs)
+
+        if self.method == "linear":
+            wsp_out = wsp_base - deficits.sum(axis=0)
+        elif self.method == "quadratic":
+            wsp_out = wsp_base - np.sqrt(np.sum(deficits**2, axis=0))
+        elif self.method == "dominant":
+            wsp_out = wsp_base - deficits.max(axis=0, initial=0)
+        else:
+            raise NotImplementedError
+        TI_out = np.sqrt(TI_base**2 + np.max(WATIs, axis=0, initial=0.0) ** 2)
+
+        return wsp_out, TI_out
 
     def wdir(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """

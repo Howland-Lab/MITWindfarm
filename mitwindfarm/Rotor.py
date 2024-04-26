@@ -26,6 +26,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 from UnifiedMomentumModel.Momentum import Heck, UnifiedMomentum, MomentumSolution
 from MITRotor.BEM import BEM as _BEM
 from MITRotor.BEM import BEMSolution, RotorDefinition
@@ -47,6 +48,8 @@ class RotorSolution:
     u4: float
     v4: float
     REWS: float
+    TI: float = None
+    idx: int = None
     extra: Any = None
 
 
@@ -89,9 +92,7 @@ class AD(Rotor):
         else:
             self.rotor_grid = rotor_grid
 
-    def __call__(
-        self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw
-    ) -> RotorSolution:
+    def __call__(self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw) -> RotorSolution:
         """
         Calculate the rotor solution for given Ctprime and yaw inputs.
 
@@ -110,8 +111,9 @@ class AD(Rotor):
         xs_glob, ys_glob, zs_glob = xs_loc + x, ys_loc + y, zs_loc + z
 
         # sample windfield and calculate rotor effective wind speed
-        Us = windfield.wsp(xs_glob, ys_glob, zs_glob)
+        Us, TIs = windfield.wsp_and_TI(xs_glob, ys_glob, zs_glob)
         REWS = self.rotor_grid.average(Us)
+        RETI = np.sqrt(self.rotor_grid.average(TIs**2))
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
@@ -123,6 +125,7 @@ class AD(Rotor):
             sol.u4 * REWS,
             sol.v4 * REWS,
             REWS,
+            TI=RETI,
             extra=sol,
         )
 
@@ -151,9 +154,7 @@ class UnifiedAD(Rotor):
             self.rotor_grid = rotor_grid
         self._model = UnifiedMomentum(beta=beta)
 
-    def __call__(
-        self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw
-    ) -> RotorSolution:
+    def __call__(self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw) -> RotorSolution:
         """
         Calculate the rotor solution for given Ctprime and yaw inputs.
 
@@ -171,8 +172,9 @@ class UnifiedAD(Rotor):
         xs_glob, ys_glob, zs_glob = xs_loc + x, ys_loc + y, zs_loc + z
 
         # sample windfield and calculate rotor effective wind speed
-        Us = windfield.wsp(xs_glob, ys_glob, zs_glob)
+        Us, TIs = windfield.wsp_and_TI(xs_glob, ys_glob, zs_glob)
         REWS = self.rotor_grid.average(Us)
+        RETI = np.sqrt(self.rotor_grid.average(TIs**2))
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
@@ -184,6 +186,7 @@ class UnifiedAD(Rotor):
             sol.u4[0] * REWS,
             sol.v4[0] * REWS,
             REWS,
+            TI=RETI,
             extra=sol,
         )
 
@@ -217,9 +220,7 @@ class BEM(Rotor):
         self.ygrid_loc /= 2
         self.zgrid_loc /= 2
 
-    def __call__(
-        self, x: float, y: float, z: float, windfield: Windfield, pitch, tsr, yaw
-    ) -> RotorSolution:
+    def __call__(self, x: float, y: float, z: float, windfield: Windfield, pitch, tsr, yaw) -> RotorSolution:
         """
         Calculate the rotor solution for given pitch, TSR, and yaw inputs.
 
@@ -234,13 +235,12 @@ class BEM(Rotor):
         xs_glob = self.xgrid_loc + x
         ys_glob = self.ygrid_loc + y
         zs_glob = self.zgrid_loc + z
+        Us, TIs = windfield.wsp_and_TI(xs_glob, ys_glob, zs_glob)
+        REWS = self._model.geometry.rotor_average(self._model.geometry.annulus_average(Us))
+        RETI = np.sqrt(self._model.geometry.rotor_average(self._model.geometry.annulus_average(TIs**2)))
 
-        U = windfield.wsp(xs_glob, ys_glob, zs_glob)
-        REWS = self._model.geometry.rotor_average(
-            self._model.geometry.annulus_average(U)
-        )
         wdir = windfield.wdir(xs_glob, ys_glob, zs_glob)
-        sol: BEMSolution = self._model(pitch, tsr, yaw, U / REWS, wdir)
+        sol: BEMSolution = self._model(pitch, tsr, yaw, Us / REWS, wdir)
         return RotorSolution(
             yaw,
             sol.Cp() * REWS**3,
@@ -250,5 +250,6 @@ class BEM(Rotor):
             sol.u4() * REWS,
             sol.v4() * REWS,
             REWS,
+            TI=RETI,
             extra=sol,
         )
