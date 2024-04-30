@@ -121,7 +121,7 @@ class GaussianWake(Wake):
 
 
 class GaussianWakeModel(WakeModel):
-    def __init__(self, sigma=0.25, kw=0.07, xmax: float = 100):
+    def __init__(self, sigma=0.25, kw=0.07, xmax: float = 100.0):
         self.sigma = sigma
         self.kw = kw
         self.xmax = xmax
