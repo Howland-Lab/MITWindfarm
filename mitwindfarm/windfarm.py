@@ -114,6 +114,9 @@ class RefTurbine:
 
     
 class RefWindfarm:
+    """
+    Wind farm model which takes power/thrust curve based turbine models.
+    """
     def __init__(
         self,
         reference_turbine: RefTurbine,
