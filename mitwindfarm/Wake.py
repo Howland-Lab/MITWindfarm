@@ -85,18 +85,23 @@ class GaussianWake(Wake):
 
         return yc_temp * self.rotor_sol.v4 + self.y
 
-    def centerline_wake_added_turb(self, x_glob: ArrayLike) -> ArrayLike:
+    def centerline_wake_added_turb(self, x: ArrayLike) -> ArrayLike:
         """
         Returns the centerline wake-added turbulence intensity (WATI) based on
         the model by Crespo and Hernandez (1996).
         """
         if self.TIamb is None or self.TIamb == 0.0:
-            return np.zeros_like(x_glob)
+            return np.zeros_like(x)
 
         else:
-            x = x_glob - self.x
+            x = x
             with np.errstate(all="ignore"):
-                WATI = 0.73 * self.rotor_sol.an**0.8325 * self.TIamb ** (-0.0325) * np.maximum(x, 0.1) ** (-0.32)
+                WATI = (
+                    0.73
+                    * (self.rotor_sol.an / self.rotor_sol.REWS) ** 0.8325
+                    * self.TIamb ** (-0.0325)
+                    * np.maximum(x, 0.1) ** (-0.32)
+                )
             WATI[x < 0.1] = 0.0
             return WATI
 
@@ -179,11 +184,3 @@ class GaussianWakeModel(WakeModel):
         self.xmax = xmax
 
 
-<<<<<<< HEAD
-    def __call__(self, x, y, z, rotor_sol: "RotorSolution") -> GaussianWake:
-        return GaussianWake(x, y, z, rotor_sol, sigma=self.sigma, kw=self.kw,
-                            xmax = self.xmax)
-=======
-    def __call__(self, x, y, z, rotor_sol: "RotorSolution", TIamb: float = None) -> GaussianWake:
-        return GaussianWake(x, y, z, rotor_sol, sigma=self.sigma, kw=self.kw, TIamb=TIamb)
->>>>>>> 0ce6daf (add added_TI)

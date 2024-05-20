@@ -104,7 +104,7 @@ class Uniform(Windfield):
 
     def __init__(self, U0: float = 1.0, TIamb: float = 0.0):
         self.U0 = U0
-        self.TIamb = TIamb
+        self.TIamb = 0.0 if TIamb is None else TIamb
 
     def wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """
@@ -261,18 +261,19 @@ class Superimposed(Windfield):
             deficits.append(_deficit)
             WATIs.append(_WATI)
 
-        deficits = np.array(deficits)
-        WATIs = np.array(WATIs)
+        if len(deficits) == 0:
+            deficits.append(np.zeros_like(wsp_base))
+            WATIs.append(np.zeros_like(wsp_base))
 
         if self.method == "linear":
-            wsp_out = wsp_base - deficits.sum(axis=0)
+            wsp_out = wsp_base - np.sum(deficits, axis=0)
         elif self.method == "quadratic":
             wsp_out = wsp_base - np.sqrt(np.sum(deficits**2, axis=0))
         elif self.method == "dominant":
             wsp_out = wsp_base - deficits.max(axis=0, initial=0)
         else:
             raise NotImplementedError
-        TI_out = np.sqrt(TI_base**2 + np.max(WATIs, axis=0, initial=0.0) ** 2)
+        TI_out = np.sqrt(TI_base**2 + np.max(WATIs, axis=0) ** 2)
 
         return wsp_out, TI_out
 

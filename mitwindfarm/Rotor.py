@@ -28,8 +28,8 @@ from typing import Any
 
 import numpy as np
 from UnifiedMomentumModel.Momentum import Heck, UnifiedMomentum, MomentumSolution
-from MITRotor.BEM import BEM as _BEM
-from MITRotor.BEM import BEMSolution, RotorDefinition
+from MITRotor import BEM as _BEM
+from MITRotor import BEMSolution, RotorDefinition
 from .Windfield import Windfield
 from .RotorGrid import RotorGrid, Point, Line, Area
 
