@@ -5,18 +5,20 @@ from scipy.optimize import minimize
 
 from mitwindfarm import Plotting
 from mitwindfarm.windfarm import Windfarm, WindfarmSolution, Layout
-
+from mitwindfarm.Rotor import BEM
+from MITRotor.ReferenceTurbines import IEA15MW
 from rich import print
+import numpy as np
 
 FIGDIR = Path(__file__).parent.parent / "fig"
 FIGDIR.mkdir(exist_ok=True, parents=True)
 
-windfarm = Windfarm(TIamb=0.5)
+windfarm = Windfarm(rotor_model=BEM(IEA15MW()), TIamb=0.1)
 layout = Layout([0, 12, 24], [0.0, 0.5, 1.0])
 
 
 def solve_for_setpoints(x) -> WindfarmSolution:
-    setpoints = [(2, x[0]), (2, x[1]), (2, x[2])]
+    setpoints = [(x[0], x[1], x[2]), (x[3], x[4], x[5]), (x[6], x[7], x[8])]
     return windfarm(layout, setpoints)
 
 
@@ -26,10 +28,23 @@ def objective_func(x):
 
 
 if __name__ == "__main__":
-    x0 = [0, 0, 0]
-    windfarm_sol_ref = solve_for_setpoints(x0)
-    print(windfarm_sol_ref)
-    sol = minimize(objective_func, x0)
+    x0 = [0, 7, 0, 0, 7, 0, 0, 7, 0]
+    sol = minimize(
+        objective_func,
+        x0,
+        bounds=[
+            (-np.deg2rad(15), np.deg2rad(15)),
+            (3, 10),
+            (-np.deg2rad(15), np.deg2rad(15)),
+            (-np.deg2rad(15), np.deg2rad(15)),
+            (3, 10),
+            (-np.deg2rad(15), np.deg2rad(15)),
+            (-np.deg2rad(15), np.deg2rad(15)),
+            (3, 10),
+            (-np.deg2rad(15), np.deg2rad(15)),
+        ],
+    )
+    print(sol)
 
     windfarm_sol_ref = solve_for_setpoints(x0)
     windfarm_sol_opt = solve_for_setpoints(sol.x)
@@ -45,5 +60,5 @@ if __name__ == "__main__":
     )
 
     plt.savefig(
-        FIGDIR / "example_06_yaw_optimisation.png", dpi=300, bbox_inches="tight"
+        FIGDIR / "example_07_BEM_yaw_optimisation.png", dpi=300, bbox_inches="tight"
     )

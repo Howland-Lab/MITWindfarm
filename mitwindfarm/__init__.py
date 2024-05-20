@@ -1,4 +1,4 @@
-from .Layout import GridLayout, Square
+from ._Layout import GridLayout, Square, Layout
 from .Rotor import RotorSolution, AD, UnifiedAD, BEM
 from .RotorGrid import Point, Line, Area
 from .Superposition import Linear, Quadratic, Dominant

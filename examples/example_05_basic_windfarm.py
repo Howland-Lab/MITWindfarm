@@ -1,26 +1,24 @@
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-import numpy as np
+from MITRotor import IEA15MW
 
-from mitwindfarm import Plotting
-from mitwindfarm.Layout import Layout
-from mitwindfarm.windfarm import Windfarm
+from mitwindfarm import BEM, Plotting, Windfarm, Layout
 
 FIGDIR = Path(__file__).parent.parent / "fig"
 FIGDIR.mkdir(exist_ok=True, parents=True)
 
 
 if __name__ == "__main__":
-    windfarm = Windfarm()
+    windfarm = Windfarm(rotor_model=BEM(IEA15MW()))
 
     setpoints = [
-        (2, 0),
-        (2, np.deg2rad(30)),
-        (2, 0),
+        (0, 7, 0),
+        (0, 7, 0),
+        (0, 7, 0),
     ]
 
-    layout = Layout([0, 12, 24], [0, 0, 0])
+    layout = Layout([0, 12 / 2, 24 / 2], [0, 0, 0])
 
     windfarm_sol = windfarm(layout, setpoints)
     windfarm_sol_rotated = windfarm(layout.rotate(5), setpoints)

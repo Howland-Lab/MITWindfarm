@@ -3,7 +3,7 @@ from typing import Optional
 
 import numpy as np
 
-from .Layout import Layout
+from ._Layout import Layout
 from .Rotor import Rotor, AD, RotorSolution
 from .Windfield import Windfield, Uniform
 from .Wake import WakeModel, Wake, GaussianWakeModel

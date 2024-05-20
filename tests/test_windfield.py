@@ -1,5 +1,6 @@
 import numpy as np
-from mitwindfarm.Windfield import Windfield, Uniform
+from mitwindfarm import Uniform
+from mitwindfarm.Windfield import Windfield
 
 
 def test_uniform_windfield_wsp():
