@@ -2,7 +2,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
-from mitwindfarm.Layout import Layout
+from mitwindfarm import Layout
 
 FIGDIR = Path(__file__).parent.parent / "fig"
 FIGDIR.mkdir(exist_ok=True, parents=True)

@@ -1,5 +1,6 @@
 import numpy as np
-from mitwindfarm.Windfield import Windfield, Uniform
+from mitwindfarm import Uniform
+from mitwindfarm.Windfield import Windfield
 
 
 def test_uniform_windfield_wsp():
@@ -31,6 +32,12 @@ def test_custom_windfield():
 
         def wdir(self, x, y, z):
             return x * y * z
+
+        def TI(self, x, y, z):
+            return x - y - z
+
+        def wsp_and_TI(self, x, y, z):
+            return x - y * z
 
     custom_windfield = CustomWindfield()
     x = np.array([1, 2, 3])

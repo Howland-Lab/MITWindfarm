@@ -3,8 +3,8 @@ from pathlib import Path
 import numpy as np
 from MITRotor.ReferenceTurbines import IEA15MW
 
-from mitwindfarm.Rotor import AD, BEM, UnifiedAD
-from mitwindfarm.Windfield import Uniform
+from mitwindfarm import AD, BEM, UnifiedAD, Uniform
+
 
 FIGDIR = Path(__file__).parent.parent / "fig"
 FIGDIR.mkdir(exist_ok=True, parents=True)

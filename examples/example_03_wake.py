@@ -3,19 +3,17 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from mitwindfarm.Rotor import RotorSolution
-from mitwindfarm.Wake import GaussianWakeModel
+from mitwindfarm import RotorSolution, GaussianWakeModel
 
 FIGDIR = Path(__file__).parent.parent / "fig"
 FIGDIR.mkdir(exist_ok=True, parents=True)
 
 
 if __name__ == "__main__":
-    rotor_sol = RotorSolution(0, 0, 0, 0, 0, 0.5, 0.1, 1.0)
-
+    rotor_sol = RotorSolution(0, 0, 0, 0, 0.3, 0.5, 0.1, 1.0)
 
     wake_model = GaussianWakeModel()
-    wake = wake_model(1, 1, 0, rotor_sol)
+    wake = wake_model(1, 1, 0, rotor_sol, TIamb=0.1)
 
     _x, _y = np.linspace(-1, 10, 400), np.linspace(-3, 3, 400)
     xmesh, ymesh = np.meshgrid(_x, _y)

@@ -3,11 +3,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from mitwindfarm import Superposition
-from mitwindfarm.Layout import Layout
-from mitwindfarm.Rotor import RotorSolution
-from mitwindfarm.Wake import GaussianWakeModel
-from mitwindfarm.Windfield import Uniform
+from mitwindfarm import Superposition, RotorSolution, GaussianWakeModel, Uniform, Layout
 
 superposition_methods = {
     "Linear": Superposition.Linear(),

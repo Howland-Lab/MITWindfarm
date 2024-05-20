@@ -3,7 +3,7 @@ from typing import Optional
 
 import numpy as np
 
-from .Layout import Layout
+from ._Layout import Layout
 from .Rotor import Rotor, AD, RotorSolution
 from .Windfield import Windfield, Uniform
 from .Wake import WakeModel, Wake, GaussianWakeModel
@@ -65,15 +65,15 @@ class Windfarm:
         wake_model: Optional[WakeModel] = None,
         superposition: Optional[Superposition] = None,
         base_windfield: Optional[Windfield] = None,
+        TIamb: float = None,
     ):
         self.rotor_model = AD() if rotor_model is None else rotor_model
         self.wake_model = GaussianWakeModel() if wake_model is None else wake_model
         self.superposition = Linear() if superposition is None else superposition
-        self.base_windfield = Uniform() if base_windfield is None else base_windfield
+        self.base_windfield = Uniform(TIamb=TIamb) if base_windfield is None else base_windfield
+        self.TIamb = TIamb
 
-    def __call__(
-        self, layout: Layout, setpoints: list[tuple[float, ...]]
-    ) -> WindfarmSolution:
+    def __call__(self, layout: Layout, setpoints: list[tuple[float, ...]]) -> WindfarmSolution:
         N = layout.x.size
         wakes = N * [None]
         rotor_solutions = N * [None]
@@ -81,7 +81,8 @@ class Windfarm:
         windfield = self.superposition(self.base_windfield, [])
         for i, (x, y, z) in layout.iter_downstream():
             rotor_solutions[i] = self.rotor_model(x, y, z, windfield, *setpoints[i])
-            wakes[i] = self.wake_model(x, y, z, rotor_solutions[i])
+            rotor_solutions[i].idx = i
+            wakes[i] = self.wake_model(x, y, z, rotor_solutions[i], TIamb=self.TIamb)
             windfield.add_wake(wakes[i])
 
         return WindfarmSolution(layout, setpoints, rotor_solutions, wakes, windfield)
@@ -94,9 +95,7 @@ class Windfarm:
             wakes[i] = self.wake_model(x, y, z, partial.rotors[i])
             windfield.add_wake(wakes[i])
 
-        return WindfarmSolution(
-            partial.layout, partial.setpoints, partial.rotors, wakes, windfield
-        )
+        return WindfarmSolution(partial.layout, partial.setpoints, partial.rotors, wakes, windfield)
 
     def from_dict(self, partial: dict) -> WindfarmSolution:
         return self.from_partial(PartialWindfarmSolution.from_dict(partial))

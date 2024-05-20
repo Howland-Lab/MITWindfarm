@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from mitwindfarm.Layout import Layout
+from mitwindfarm import Layout
 
 
 @pytest.fixture

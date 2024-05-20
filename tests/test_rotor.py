@@ -1,5 +1,4 @@
-from mitwindfarm import Windfield
-from mitwindfarm.Rotor import BEM, UnifiedAD, AD, RotorSolution
+from mitwindfarm import Windfield, BEM, UnifiedAD, AD, RotorSolution
 from MITRotor.ReferenceTurbines import IEA15MW
 
 
