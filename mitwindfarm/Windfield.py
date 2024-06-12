@@ -122,7 +122,21 @@ class Uniform(Windfield):
 
     def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """
-        Calculate wind speed and turbulence intensity at specified coordinates.
+        Calculate turbulence intensity at specified coordinates.
+
+        Parameters:
+        - x: x-coordinates.
+        - y: y-coordinates.
+        - z: z-coordinates.
+
+        Returns:
+        ArrayLike: Wind speed at the specified coordinates.
+        """
+        return self.TIamb * np.ones_like(x)
+    
+    def RETI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Calculate rotor equivalent turbulence intensity at specified coordinates.
 
         Parameters:
         - x: x-coordinates.
@@ -185,6 +199,9 @@ class PowerLaw(Windfield):
         return u
 
     def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        return self.TIamb * np.ones_like(x)
+    
+    def RETI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         return self.TIamb * np.ones_like(x)
 
     def wsp_and_TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
@@ -249,6 +266,15 @@ class Superimposed(Windfield):
         base = self.base_windfield.TI(x, y, z)
         WATIs = np.array([wake.wake_added_turbulence(x, y, z) for wake in self.wakes])
 
+        out = np.sqrt(base**2 + np.max(WATIs, axis=0) ** 2)
+
+        return out
+    
+    def RETI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        base = self.base_windfield.TI(x, y, z)
+        WATIs = np.array([wake.RE_wake_added_turbulence(x, y, z) for wake in self.wakes])
+        if len(self.wakes) == 0:
+            WATIs = np.zeros_like(base)
         out = np.sqrt(base**2 + np.max(WATIs, axis=0) ** 2)
 
         return out
