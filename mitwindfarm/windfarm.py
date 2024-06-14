@@ -4,7 +4,7 @@ from typing import Optional, Union
 import numpy as np
 
 from ._Layout import Layout
-from .Rotor import Rotor, AD, RotorSolution, AnalyticalAvgAD, AnalyticalAvgUnifiedAD
+from .Rotor import AD, UnifiedAD, RotorSolution, AnalyticalAvgAD, AnalyticalAvgUnifiedAD
 from .Windfield import Windfield, Uniform
 from .Wake import WakeModel, Wake, GaussianWakeModel
 from .Superposition import Superposition, Linear
@@ -61,7 +61,7 @@ class PartialWindfarmSolution:
 class Windfarm:
     def __init__(
         self,
-        rotor_model: Optional[Rotor] = None,
+        rotor_model: Union[AD, UnifiedAD] = None,
         wake_model: Optional[WakeModel] = None,
         superposition: Optional[Superposition] = None,
         base_windfield: Optional[Windfield] = None,
