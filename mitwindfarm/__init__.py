@@ -1,7 +1,7 @@
 from ._Layout import GridLayout, Square, Layout
-from .Rotor import RotorSolution, AD, UnifiedAD, BEM
+from .Rotor import RotorSolution, AD, UnifiedAD, BEM, AnalyticalAvgAD, AnalyticalAvgUnifiedAD
 from .RotorGrid import Point, Line, Area
 from .Superposition import Linear, Quadratic, Dominant
 from .Wake import WakeModel, GaussianWakeModel, GaussianWake
-from .windfarm import WindfarmSolution, PartialWindfarmSolution, Windfarm
+from .windfarm import WindfarmSolution, PartialWindfarmSolution, Windfarm, AnalyticalAvgWindfarm
 from .Windfield import Uniform, PowerLaw, Superimposed
