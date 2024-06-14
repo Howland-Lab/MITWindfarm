@@ -135,6 +135,54 @@ class AD(Rotor):
             extra=sol,
         )
 
+class AnalyticalAvgAD(Rotor):
+    """
+    Axial Distribution rotor model using analytically line averaged REWS.
+    Methods:
+    - __call__(Ctprime, yaw): Calculate the rotor solution for given Ctprime and yaw inputs.
+    """
+
+    def __init__(self):
+        """
+        Initialize the AD rotor model using the Heck momentum model.
+        """
+        self._model = Heck()
+
+    def __call__(self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw) -> RotorSolution:
+        """
+        Calculate the rotor solution for given Ctprime and yaw inputs.
+        Parameters:
+        - Ctprime (float): Thrust coefficient including the effect of yaw.
+        - yaw (float): Yaw angle of the rotor.
+        Returns:
+        RotorSolution: The calculated rotor solution.
+        """
+        # Calculate rotor solution (independent of wind field in this model)
+        sol: MomentumSolution = self._model(Ctprime, yaw)
+
+        # sample analytically line-averaged rotor effective wind speed
+        REWS = windfield.RE_wsp(x, y , z)
+
+        # compute rotor equivalent turbulence intensity
+        x_call = x if isinstance(x, DualNumber) else np.array([x])
+        y_call = y if isinstance(y, DualNumber) else np.array([y])
+        z_call = z if isinstance(z, DualNumber) else np.array([z])
+        RETI = np.mean(windfield.RETI(x_call, y_call, z_call))
+
+        # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
+        return RotorSolution(
+            yaw,
+            sol.Cp * REWS**3,
+            sol.Ct * REWS**2,
+            sol.Ctprime,
+            sol.an * REWS,
+            sol.u4 * REWS,
+            sol.v4 * REWS,
+            REWS,
+            TI=RETI,
+            extra=sol,
+        )
+
 
 class UnifiedAD(Rotor):
     """
@@ -196,6 +244,58 @@ class UnifiedAD(Rotor):
             sol.an[0] * REWS,
             sol.u4[0] * REWS,
             sol.v4[0] * REWS,
+            REWS,
+            TI=RETI,
+            extra=sol,
+        )
+
+class AnalyticalAvgUnifiedAD(Rotor):
+    """
+    Unified Momentum Model rotor with an axial induction factor using
+        analytically line averaged REWS.
+    Attributes:
+    - beta (float): Axial induction factor.
+    Methods:
+    - __call__(Ctprime, yaw): Calculate the rotor solution for given Ctprime and yaw inputs.
+    """
+
+    def __init__(self, beta=0.1403):
+        """
+        Initialize the UnifiedAD rotor model with the given axial induction factor.
+        Parameters:
+        - beta (float): Axial induction factor (default is 0.1403).
+        """
+        self._model = UnifiedMomentum(beta=beta)
+
+    def __call__(self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw) -> RotorSolution:
+        """
+        Calculate the rotor solution for given Ctprime and yaw inputs.
+        Parameters:
+        - Ctprime (float): Thrust coefficient including the effect of yaw.
+        - yaw (float): Yaw angle of the rotor.
+        Returns:
+        RotorSolution: The calculated rotor solution.
+        """
+        sol: MomentumSolution = self._model(Ctprime, yaw)
+
+        # sample analytically line-averaged rotor effective wind speed
+        REWS = windfield.RE_wsp(x, y , z)
+
+        # compute rotor equivalent turbulence intensity
+        x_call = x if isinstance(x, DualNumber) else np.array([x])
+        y_call = y if isinstance(y, DualNumber) else np.array([y])
+        z_call = z if isinstance(z, DualNumber) else np.array([z])
+        RETI = np.mean(windfield.RETI(x_call, y_call, z_call))
+
+        # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
+        return RotorSolution(
+            yaw,
+            sol.Cp * REWS**3,
+            sol.Ct * REWS**2,
+            sol.Ctprime,
+            sol.an * REWS,
+            sol.u4 * REWS,
+            sol.v4 * REWS,
             REWS,
             TI=RETI,
             extra=sol,

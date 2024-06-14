@@ -92,6 +92,20 @@ class Windfield(ABC):
         """
         pass
 
+    @abstractmethod
+    def RE_wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Calculate analytically line-averaged rotor equivalent windspeed at the
+            specified rotor. MUST be used with Gaussian wake model.
+        Parameters:
+        - x: x-coordinates.
+        - y: y-coordinates.
+        - z: z-coordinates.
+        Returns:
+        ArrayLike: rotor equivalent wind speed at the specified coordinates.
+        """
+        pass
+
 
 class Uniform(Windfield):
     """
@@ -119,6 +133,18 @@ class Uniform(Windfield):
         ArrayLike: Array of ones with the same shape as input coordinates.
         """
         return self.U0 * np.ones_like(x)
+    
+    def RE_wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+            """
+            Returns an array of ones with the same shape as input coordinates.
+            Parameters:
+            - x: x-coordinates.
+            - y: y-coordinates.
+            - z: z-coordinates.
+            Returns:
+            ArrayLike: Array of ones with the same shape as input coordinates.
+            """
+            return self.U0 * np.ones_like(x)
 
     def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """
@@ -198,6 +224,11 @@ class PowerLaw(Windfield):
         u = np.nan_to_num(u)
         return u
 
+    def RE_wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        u = self.Uref * (z / self.zref) ** self.exp
+        u = np.nan_to_num(u)
+        return u
+
     def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         return self.TIamb * np.ones_like(x)
     
@@ -238,7 +269,7 @@ class Superimposed(Windfield):
 
     def wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """
-        Returns an array of ones with the same shape as input coordinates.
+        Returns wind speed at the specified coordinates.
 
         Parameters:
         - x: x-coordinates.
@@ -246,7 +277,7 @@ class Superimposed(Windfield):
         - z: z-coordinates.
 
         Returns:
-        ArrayLike: Array of ones with the same shape as input coordinates.
+        ArrayLike: Array of wind speeds.
         """
         base = self.base_windfield.wsp(x, y, z)
         deficits = np.array([wake.deficit(x, y, z) for wake in self.wakes])
@@ -261,10 +292,33 @@ class Superimposed(Windfield):
             raise NotImplementedError
 
         return out
+    
+    def RE_wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Returns analytically line averaged rotor-equivalent wind speed at 
+            specified coordinates.
+        Parameters:
+        - x: x-coordinates.
+        - y: y-coordinates.
+        - z: z-coordinates.
+        Returns:
+        ArrayLike: Array of rotor equivalent wind speeds at the specified
+            coordinates.
+        """
+        base = self.base_windfield.wsp(x, y, z)
+        deficits = np.array([wake.line_deficit(x, y) for wake in self.wakes])
+
+        out = base - deficits.sum(axis=0)
+
+        return out
 
     def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         base = self.base_windfield.TI(x, y, z)
         WATIs = np.array([wake.wake_added_turbulence(x, y, z) for wake in self.wakes])
+
+        if len(self.wakes) == 0:
+            WATIs = np.zeros_like(base)
+
 
         out = np.sqrt(base**2 + np.max(WATIs, axis=0) ** 2)
 
