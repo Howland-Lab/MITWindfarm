@@ -307,7 +307,6 @@ class Superimposed(Windfield):
         """
         base = self.base_windfield.wsp(x, y, z)
         deficits = np.array([wake.line_deficit(x, y) for wake in self.wakes])
-
         out = base - deficits.sum(axis=0)
 
         return out
