@@ -272,7 +272,7 @@ class Superimposed(Windfield):
     
     def RETI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         base = self.base_windfield.TI(x, y, z)
-        WATIs = np.array([wake.RE_wake_added_turbulence(x, y, z) for wake in self.wakes])
+        WATIs = [wake.RE_wake_added_turbulence(x, y, z) for wake in self.wakes]
         if len(self.wakes) == 0:
             WATIs = np.zeros_like(base)
         out = np.sqrt(base**2 + np.max(WATIs, axis=0) ** 2)
