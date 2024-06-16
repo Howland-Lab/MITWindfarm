@@ -32,7 +32,6 @@ from MITRotor import BEM as _BEM
 from MITRotor import BEMSolution, RotorDefinition
 from .Windfield import Windfield
 from .RotorGrid import RotorGrid, Point, Line, Area
-from dualitic import DualNumber
 
 
 @dataclass
@@ -116,10 +115,10 @@ class AD(Rotor):
         REWS = self.rotor_grid.average(Us)
         
         # compute rotor equivalent turbulence intensity
-        x_call = x if isinstance(x, DualNumber) else np.array([x])
-        y_call = y if isinstance(y, DualNumber) else np.array([y])
-        z_call = z if isinstance(z, DualNumber) else np.array([z])
-        RETI = np.mean(windfield.RETI(x_call, y_call, z_call))
+        x = x * np.array([1])
+        y = y * np.array([1])
+        z = z * np.array([1])
+        RETI = np.mean(windfield.RETI(x, y, z))
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
@@ -182,10 +181,10 @@ class UnifiedAD(Rotor):
         REWS = self.rotor_grid.average(Us)
 
         # compute rotor equivalent turbulence intensity
-        x_call = x if isinstance(x, DualNumber) else np.array([x])
-        y_call = y if isinstance(y, DualNumber) else np.array([y])
-        z_call = z if isinstance(z, DualNumber) else np.array([z])
-        RETI = np.mean(windfield.RETI(x_call, y_call, z_call))
+        x = x * np.array([1])
+        y = y * np.array([1])
+        z = z * np.array([1])
+        RETI = np.mean(windfield.RETI(x, y, z))
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
