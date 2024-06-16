@@ -111,9 +111,14 @@ class AD(Rotor):
         xs_glob, ys_glob, zs_glob = xs_loc + x, ys_loc + y, zs_loc + z
 
         # sample windfield and calculate rotor effective wind speed
-        Us, TIs = windfield.wsp_and_TI(xs_glob, ys_glob, zs_glob)
+        Us = windfield.wsp(xs_glob, ys_glob, zs_glob)
         REWS = self.rotor_grid.average(Us)
-        RETI = np.sqrt(self.rotor_grid.average(TIs**2))
+        
+        # compute rotor equivalent turbulence intensity
+        x = x * np.array([1])
+        y = y * np.array([1])
+        z = z * np.array([1])
+        RETI = np.mean(windfield.RETI(x, y, z))
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
@@ -172,9 +177,14 @@ class UnifiedAD(Rotor):
         xs_glob, ys_glob, zs_glob = xs_loc + x, ys_loc + y, zs_loc + z
 
         # sample windfield and calculate rotor effective wind speed
-        Us, TIs = windfield.wsp_and_TI(xs_glob, ys_glob, zs_glob)
+        Us = windfield.wsp(xs_glob, ys_glob, zs_glob)
         REWS = self.rotor_grid.average(Us)
-        RETI = np.sqrt(self.rotor_grid.average(TIs**2))
+
+        # compute rotor equivalent turbulence intensity
+        x = x * np.array([1])
+        y = y * np.array([1])
+        z = z * np.array([1])
+        RETI = np.mean(windfield.RETI(x, y, z))
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
