@@ -38,6 +38,9 @@ def test_custom_windfield():
 
         def wsp_and_TI(self, x, y, z):
             return x - y * z
+        
+        def RE_wsp(self, x, y):
+            return x + y
 
     custom_windfield = CustomWindfield()
     x = np.array([1, 2, 3])

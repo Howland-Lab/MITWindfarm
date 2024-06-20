@@ -32,7 +32,7 @@ from MITRotor import BEM as _BEM
 from MITRotor import BEMSolution, RotorDefinition
 from .Windfield import Windfield
 from .RotorGrid import RotorGrid, Point, Line, Area
-from .ThrustCurve import ThrustCurve, ThrustCurve_IEA15MW
+from .ReferenceCurve import ReferenceCurve, ReferenceCurve_IEA15MW
 
 
 @dataclass
@@ -144,7 +144,7 @@ class RefCtrlAD(Rotor):
     """
 
     def __init__(self, rotor_grid: RotorGrid = None, u_rated: float = None,
-                 thrustcurve: ThrustCurve = None):
+                 refcurve: ReferenceCurve = None):
         """
         Initialize the AD rotor model using the Heck momentum model.
         """
@@ -158,7 +158,7 @@ class RefCtrlAD(Rotor):
             breakpoint()
         else:
             self.u_rated = u_rated
-        self._thrustcurve = ThrustCurve_IEA15MW() if thrustcurve is None else thrustcurve
+        self._refcurve = ReferenceCurve_IEA15MW() if refcurve is None else refcurve
         
 
     def __call__(self, x: float, y: float, z: float, windfield: Windfield,
@@ -185,7 +185,7 @@ class RefCtrlAD(Rotor):
         REWS = self.rotor_grid.average(Us)
 
         # if no Ctprime is given, get Ctprime from ThrustCurve
-        Ctprime = self._thrustcurve(REWS / self.u_rated) if Ctprime is None else Ctprime
+        Ctprime = self._refcurve.thrust(REWS / self.u_rated) if Ctprime is None else Ctprime
 
         # Calculate rotor solution (independent of wind field in this model)
         sol: MomentumSolution = self._model(Ctprime, yaw)
@@ -196,10 +196,14 @@ class RefCtrlAD(Rotor):
         z = z * np.array([1])
         RETI = np.mean(windfield.RETI(x, y, z))
 
+        u_corr = REWS * (1 + 0.25 * Ctprime) * (1 - sol.an) * np.cos(yaw)
+
+        cp = self._refcurve.power(u_corr / self.u_rated) * (u_corr ** 3)
+
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
             yaw,
-            sol.Cp * REWS**3,
+            cp,
             sol.Ct * REWS**2,
             sol.Ctprime,
             sol.an * REWS,
@@ -266,7 +270,7 @@ class RefCtrlAnalyticalAvgAD(Rotor):
     - __call__(Ctprime, yaw): Calculate the rotor solution for given Ctprime and yaw inputs.
     """
 
-    def __init__(self, u_rated: float, thrustcurve: ThrustCurve = None):
+    def __init__(self, u_rated: float, refcurve: ReferenceCurve = None):
         """
         Initialize the AD rotor model using the Heck momentum model with
         analytical REWS averaging.
@@ -285,7 +289,7 @@ class RefCtrlAnalyticalAvgAD(Rotor):
             breakpoint()
         else:
             self.u_rated = u_rated
-        self._thrustcurve = ThrustCurve_IEA15MW() if thrustcurve is None else thrustcurve
+        self._refcurve = ReferenceCurve_IEA15MW() if refcurve is None else refcurve
 
     def __call__(self, x: float, y: float, z: float, windfield: Windfield,
                  Ctprime: float = None, yaw: float = 0.0) -> RotorSolution:
@@ -305,7 +309,7 @@ class RefCtrlAnalyticalAvgAD(Rotor):
         REWS = np.cos(yaw) * np.mean(windfield.RE_wsp(x, y, z))
 
         # if no Ctprime is given, get Ctprime from ThrustCurve
-        Ctprime = self._thrustcurve(REWS / self.u_rated) if Ctprime is None else Ctprime
+        Ctprime = self._refcurve.thrust(REWS / self.u_rated) if Ctprime is None else Ctprime
 
         # Calculate rotor solution (independent of wind field in this model)
         sol: MomentumSolution = self._model(Ctprime, yaw)
@@ -316,10 +320,14 @@ class RefCtrlAnalyticalAvgAD(Rotor):
         z = z * np.array([1])
         RETI = np.mean(windfield.RETI(x, y, z))
 
+        u_corr = REWS * (1 + 0.25 * Ctprime) * (1 - sol.an) * np.cos(yaw)
+
+        cp = self._refcurve.power(u_corr / self.u_rated) * (u_corr ** 3)
+
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
             yaw,
-            sol.Cp * REWS**3,
+            cp,
             sol.Ct * REWS**2,
             sol.Ctprime,
             sol.an * REWS,
@@ -458,7 +466,7 @@ class RefCtrlUnifiedAD(Rotor):
     """
 
     def __init__(self, rotor_grid: RotorGrid = None,  beta=0.1403, u_rated: float = None,
-                 thrustcurve: ThrustCurve = None):
+                 refcurve: ReferenceCurve = None):
         """
         Initialize the AD rotor model using the Heck momentum model.
         """
@@ -472,7 +480,7 @@ class RefCtrlUnifiedAD(Rotor):
             breakpoint()
         else:
             self.u_rated = u_rated
-        self._thrustcurve = ThrustCurve_IEA15MW() if thrustcurve is None else thrustcurve
+        self._refcurve = ReferenceCurve_IEA15MW() if refcurve is None else refcurve
         
 
     def __call__(self, x: float, y: float, z: float, windfield: Windfield,
@@ -499,7 +507,7 @@ class RefCtrlUnifiedAD(Rotor):
         REWS = self.rotor_grid.average(Us)
 
         # if no Ctprime is given, get Ctprime from ThrustCurve
-        Ctprime = self._thrustcurve(REWS / self.u_rated) if Ctprime is None else Ctprime
+        Ctprime = self._refcurve.thrust(REWS / self.u_rated) if Ctprime is None else Ctprime
 
         # Calculate rotor solution (independent of wind field in this model)
         sol: MomentumSolution = self._model(Ctprime, yaw)
@@ -510,10 +518,14 @@ class RefCtrlUnifiedAD(Rotor):
         z = z * np.array([1])
         RETI = np.mean(windfield.RETI(x, y, z))
 
+        u_corr = REWS * (1 + 0.25 * Ctprime) * (1 - sol.an) * np.cos(yaw)
+
+        cp = self._refcurve.power(u_corr / self.u_rated) * (u_corr ** 3)
+
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
             yaw,
-            sol.Cp * REWS**3,
+            cp,
             sol.Ct * REWS**2,
             sol.Ctprime,
             sol.an * REWS,
