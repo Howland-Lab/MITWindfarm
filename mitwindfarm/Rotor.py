@@ -185,6 +185,7 @@ class RefCtrlAD(Rotor):
         REWS = self.rotor_grid.average(Us)
 
         # if no Ctprime is given, get Ctprime from ThrustCurve
+        ref_thrust = True if Ctprime is None else False
         Ctprime = self._refcurve.thrust(REWS / self.u_rated) if Ctprime is None else Ctprime
 
         # Calculate rotor solution (independent of wind field in this model)
@@ -203,7 +204,7 @@ class RefCtrlAD(Rotor):
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
             yaw,
-            cp,
+            cp if ref_thrust else sol.Cp,
             sol.Ct * REWS**2,
             sol.Ctprime,
             sol.an * REWS,
@@ -306,7 +307,7 @@ class RefCtrlAnalyticalAvgAD(Rotor):
         """
 
         # sample analytically line-averaged rotor effective wind speed
-        REWS = np.cos(yaw) * np.mean(windfield.RE_wsp(x, y, z))
+        REWS = np.mean(windfield.RE_wsp(x, y, z))
 
         # if no Ctprime is given, get Ctprime from ThrustCurve
         Ctprime = self._refcurve.thrust(REWS / self.u_rated) if Ctprime is None else Ctprime
