@@ -243,3 +243,13 @@ class GaussianWakeModel(WakeModel):
             TIamb=TIamb,
             xmax=self.xmax,
         )
+    
+class VariableKwGaussianWakeModel(WakeModel):
+    def __init__(self, a: float = 0.7516, b: float = 0.0196, sigma: float = 0.25):
+        self.a = a
+        self.b = b
+        self.sigma = sigma
+
+    def __call__(self, x, y, z, rotor_sol: "RotorSolution", TIamb: float = None) -> GaussianWake:
+        kw = self.a * rotor_sol.TI + self.b
+        return GaussianWake(x, y, z, rotor_sol, sigma=self.sigma, kw=kw, TIamb=TIamb)
