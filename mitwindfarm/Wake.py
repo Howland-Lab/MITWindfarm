@@ -213,7 +213,7 @@ class GaussianWake(Wake):
         x, y = x_glob - self.x, y_glob - self.y
 
         d = self._wake_diameter(x)
-        yc = self.centerline(x)
+        yc = self.centerline(x_glob) - self.y
         du = self._du(x, wake_diameter=d)
 
         erf_plus = erf((y + 0.5 - yc) / (np.sqrt(2) * self.sigma * d))
