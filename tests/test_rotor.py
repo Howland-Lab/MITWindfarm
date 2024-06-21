@@ -1,6 +1,6 @@
 import numpy as np
 
-from mitwindfarm import Windfield, BEM, UnifiedAD, AD, RotorSolution, Layout, Windfarm, RefCtrlWindfarm, AnalyticalAvgWindfarm, RefCtrlAD, RefCtrlAnalyticalAvgAD, RefCtrlAnalyticalAvgWindfarm
+from mitwindfarm import Windfield, BEM, UnifiedAD, AD, RotorSolution, Layout, Windfarm, AnalyticalAvgWindfarm
 from MITRotor.ReferenceTurbines import IEA15MW
 
 
