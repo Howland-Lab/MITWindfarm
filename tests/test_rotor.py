@@ -1,4 +1,6 @@
-from mitwindfarm import Windfield, BEM, UnifiedAD, AD, RotorSolution
+import numpy as np
+
+from mitwindfarm import Windfield, BEM, UnifiedAD, AD, RotorSolution, Layout, Windfarm, RefCtrlWindfarm, AnalyticalAvgWindfarm, RefCtrlAD, RefCtrlAnalyticalAvgAD, RefCtrlAnalyticalAvgWindfarm
 from MITRotor.ReferenceTurbines import IEA15MW
 
 
@@ -58,3 +60,30 @@ def test_ad_rotor():
     assert isinstance(solution.an, float)
     assert isinstance(solution.u4, float)
     assert isinstance(solution.v4, float)
+
+def test_ref_rotor():
+    layout = Layout(xs = [0.0, 6.0, 12.0, 18.0], ys = [0.0, 0.0, 0.0, 0.0])
+    windfarm = Windfarm()
+    RCAA_windfarm = RefCtrlWindfarm(rotor_model=RefCtrlAD(u_rated=1.0))
+    wf_sol = windfarm(layout = layout, setpoints= [(2.0, 0.0) for _ in layout.x])
+    RCAA_sol = RCAA_windfarm(layout = layout, thrust_spts=[2.0, 2.0, 2.0, 2.0],
+                            yaw_spts= [0.0, 0.0, 0.0, 0.0])
+
+    assert np.array_equal([rot.Cp for rot in wf_sol.rotors],
+                          [rot.Cp for rot in RCAA_sol.rotors])
+
+def test_aa_ref_rotor():
+    layout = Layout(xs = [0.0, 6.0, 12.0, 18.0], ys = [0.0, 0.0, 0.0, 0.0])
+    windfarm = AnalyticalAvgWindfarm()
+    RCAA_windfarm = RefCtrlAnalyticalAvgWindfarm(rotor_model=RefCtrlAnalyticalAvgAD(u_rated=1.0))
+    wf_sol = windfarm(layout = layout, setpoints= [(2.0, 0.0) for _ in layout.x])
+    RCAA_sol = RCAA_windfarm(layout = layout, thrust_spts=[2.0, 2.0, 2.0, 2.0],
+                            yaw_spts= [0.0, 0.0, 0.0, 0.0])
+
+    assert np.array_equal([rot.Cp for rot in wf_sol.rotors], [rot.Cp for rot in RCAA_sol.rotors])
+
+
+
+
+
+    
