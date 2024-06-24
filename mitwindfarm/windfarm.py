@@ -133,7 +133,8 @@ class ReferenceWindfarm:
         self.TIamb = TIamb
 
     def __call__(
-        self, layout: Layout, thrust_spts: list[float], yaw_spts: list[float]
+        self, layout: Layout, thrust_spts: list[float], yaw_spts: list[float],
+        urated: float
     ) -> WindfarmSolution:
         """
         Parameters:
@@ -141,6 +142,8 @@ class ReferenceWindfarm:
             - thrust_spts: Ct' setpoints of each turbine or list of None of
                 length of turbines, if setpoint is None, setpoint will be
                 determined using ThrustCurve.
+            - urated: the rated wind speed of the reference turbine used 
+                normalized by the free stream wind speed.
 
         Returns:
             - a WindfarmSolution object.
@@ -153,7 +156,7 @@ class ReferenceWindfarm:
         windfield = self.superposition(self.base_windfield, [])
         for i, (x, y, z) in layout.iter_downstream():
             rotor_solutions[i] = self.rotor_model(
-                x, y, z, windfield, thrust_spts[i], yaw_spts[i]
+                x, y, z, windfield, thrust_spts[i], yaw_spts[i], urated
             )
             rotor_solutions[i].idx = i
             wakes[i] = self.wake_model(x, y, z, rotor_solutions[i], TIamb=self.TIamb)

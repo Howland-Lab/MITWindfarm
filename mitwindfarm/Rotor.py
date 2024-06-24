@@ -149,7 +149,7 @@ class ReferenceRotor(Rotor):
     def __init__(
         self,
         rotor_grid: RotorGrid = None,
-        u_rated: float = None,
+        # u_rated: float = None,
         refcurve: ReferenceCurve = None,
     ):
         """
@@ -160,11 +160,11 @@ class ReferenceRotor(Rotor):
             self.rotor_grid = Area()
         else:
             self.rotor_grid = rotor_grid
-        if u_rated is None:
-            """Must specify u_rated."""
-            breakpoint()
-        else:
-            self.u_rated = u_rated
+        # if u_rated is None:
+        #     """Must specify u_rated."""
+        #     breakpoint()
+        # else:
+        #     self.u_rated = u_rated
         self._refcurve = ReferenceCurve_IEA15MW() if refcurve is None else refcurve
 
     def __call__(
@@ -175,6 +175,7 @@ class ReferenceRotor(Rotor):
         windfield: Windfield,
         Ctprime: float = None,
         yaw: float = 0.0,
+        urated: float = None
     ) -> RotorSolution:
         """
         Calculate the rotor solution for given Ctprime and yaw inputs. If
@@ -186,6 +187,8 @@ class ReferenceRotor(Rotor):
             set to None, will be chosen using the thrust curve of the reference
             turbine.
         - yaw (float): Yaw angle of the rotor.
+        - urated (float): the rated wind speed of the reference turbine used 
+                normalized by the free stream wind speed.
 
         Returns:
         RotorSolution: The calculated rotor solution with the power given by
@@ -202,7 +205,7 @@ class ReferenceRotor(Rotor):
 
         # if no Ctprime is given, get Ctprime from ThrustCurve
         Ctprime = (
-            self._refcurve.thrust(REWS / self.u_rated) if Ctprime is None else Ctprime
+            self._refcurve.thrust(REWS / urated) if Ctprime is None else Ctprime
         )
 
         # Calculate rotor solution (independent of wind field in this model)
@@ -216,7 +219,7 @@ class ReferenceRotor(Rotor):
 
         u_corr = REWS * (1 + 0.25 * Ctprime) * (1 - sol.an) * np.cos(yaw)
 
-        Cp = self._refcurve.power(u_corr / self.u_rated) * (u_corr**3)
+        Cp = self._refcurve.power(u_corr / urated) * (u_corr**3)
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
