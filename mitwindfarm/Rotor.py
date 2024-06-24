@@ -182,11 +182,14 @@ class ReferenceRotor(Rotor):
         not given, assume yaw is zero.
 
         Parameters:
-        - Ctprime (float): Thrust coefficient including the effect of yaw.
+        - Ctprime (float): Thrust coefficient including the effect of yaw, if
+            set to None, will be chosen using the thrust curve of the reference
+            turbine.
         - yaw (float): Yaw angle of the rotor.
 
         Returns:
-        RotorSolution: The calculated rotor solution.
+        RotorSolution: The calculated rotor solution with the power given by
+            the reference turbine power curve.
         """
 
         # Get the points over rotor to be sampled in windfield
@@ -198,7 +201,6 @@ class ReferenceRotor(Rotor):
         REWS = self.rotor_grid.average(Us)
 
         # if no Ctprime is given, get Ctprime from ThrustCurve
-        
         Ctprime = (
             self._refcurve.thrust(REWS / self.u_rated) if Ctprime is None else Ctprime
         )

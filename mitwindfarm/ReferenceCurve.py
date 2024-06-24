@@ -159,7 +159,11 @@ class ReferenceCurve_IEA15MW(ReferenceCurve):
         )
 
         self.cps = np.array(
-            [
+            [   0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
                 0.05897929,
                 0.244877465,
                 0.338251306,
