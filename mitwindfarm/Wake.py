@@ -205,11 +205,12 @@ class GaussianWake(Wake):
 
         return gaussian_ * du, gaussian_ * WATI
 
-    def line_deficit(self, x: np.array, y: np.array):
+    def line_deficit(self, x_glob: np.array, y_glob: np.array):
         """
         Returns the deficit at hub height averaged along a lateral line of
         length 1, centered at (x, y).
         """
+        x, y = x_glob - self.x, y_glob - self.y
 
         d = self._wake_diameter(x)
         yc = self.centerline(x)
