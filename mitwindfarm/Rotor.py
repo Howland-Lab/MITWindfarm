@@ -34,8 +34,6 @@ from .Windfield import Windfield
 from .RotorGrid import RotorGrid, Point, Line, Area
 from .ReferenceCurve import ReferenceCurve, ReferenceCurve_IEA15MW
 
-bug.
-
 @dataclass
 class RotorSolution:
     """
