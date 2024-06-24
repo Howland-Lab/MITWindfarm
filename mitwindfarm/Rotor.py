@@ -149,7 +149,6 @@ class ReferenceRotor(Rotor):
     def __init__(
         self,
         rotor_grid: RotorGrid = None,
-        # u_rated: float = None,
         refcurve: ReferenceCurve = None,
     ):
         """
@@ -160,11 +159,6 @@ class ReferenceRotor(Rotor):
             self.rotor_grid = Area()
         else:
             self.rotor_grid = rotor_grid
-        # if u_rated is None:
-        #     """Must specify u_rated."""
-        #     breakpoint()
-        # else:
-        #     self.u_rated = u_rated
         self._refcurve = ReferenceCurve_IEA15MW() if refcurve is None else refcurve
 
     def __call__(
@@ -295,25 +289,18 @@ class AnalyticalAvgReferenceRotor(Rotor):
     - __call__(Ctprime, yaw): Calculate the rotor solution for given Ctprime and yaw inputs.
     """
 
-    def __init__(self, u_rated: float, refcurve: ReferenceCurve = None):
+    def __init__(self, refcurve: ReferenceCurve = None):
         """
         Initialize the AD rotor model using the Heck momentum model with
         analytical REWS averaging.
 
         Parameters:
-            - u_rated: the rated windspeed of the reference turbine used
-                non-dimensionalized by the freestream wind speed.
             - thrustcurve: a ThrustCurve object.
 
         Output:
             - a RotorSolution object.
         """
         self._model = Heck()
-        if u_rated is None:
-            """Must specify u_rated."""
-            breakpoint()
-        else:
-            self.u_rated = u_rated
         self._refcurve = ReferenceCurve_IEA15MW() if refcurve is None else refcurve
 
     def __call__(
@@ -324,6 +311,7 @@ class AnalyticalAvgReferenceRotor(Rotor):
         windfield: Windfield,
         Ctprime: float = None,
         yaw: float = 0.0,
+        urated: float = None
     ) -> RotorSolution:
         """
         Calculate the rotor solution using analytically averaged REWS
@@ -333,8 +321,11 @@ class AnalyticalAvgReferenceRotor(Rotor):
         Parameters:
         - Ctprime (float): Thrust coefficient including the effect of yaw.
         - yaw (float): Yaw angle of the rotor.
+        - u_rated: the rated windspeed of the reference turbine used
+            non-dimensionalized by the freestream wind speed.
+
         Returns:
-        RotorSolution: The calculated rotor solution.
+        - RotorSolution: The calculated rotor solution.
         """
 
         # sample analytically line-averaged rotor effective wind speed
@@ -343,7 +334,7 @@ class AnalyticalAvgReferenceRotor(Rotor):
         # if no Ctprime is given, get Ctprime from ThrustCurve
         ref_thrust = True if Ctprime is None else False
         Ctprime = (
-            self._refcurve.thrust(REWS / self.u_rated) if Ctprime is None else Ctprime
+            self._refcurve.thrust(REWS / urated) if Ctprime is None else Ctprime
         )
 
         # Calculate rotor solution (independent of wind field in this model)
@@ -357,7 +348,7 @@ class AnalyticalAvgReferenceRotor(Rotor):
 
         u_corr = REWS * (1 + 0.25 * Ctprime) * (1 - sol.an) * np.cos(yaw)
 
-        Cp = self._refcurve.power(u_corr / self.u_rated) * (u_corr**3)
+        Cp = self._refcurve.power(u_corr / urated) * (u_corr**3)
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(

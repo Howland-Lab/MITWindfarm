@@ -246,7 +246,8 @@ class AnalyticalAvgReferenceWindfarm:
         self.TIamb = TIamb
 
     def __call__(
-        self, layout: Layout, thrust_spts: list[float], yaw_spts: list[float]
+        self, layout: Layout, thrust_spts: list[float], yaw_spts: list[float],
+        urated: float
     ) -> WindfarmSolution:
         N = layout.x.size
         wakes = N * [None]
@@ -256,7 +257,7 @@ class AnalyticalAvgReferenceWindfarm:
         windfield = self.superposition(self.base_windfield, [])
         for i, (x, y, z) in layout.iter_downstream():
             rotor_solutions[i] = self.rotor_model(
-                x, y, z, windfield, thrust_spts[i], yaw_spts[i]
+                x, y, z, windfield, thrust_spts[i], yaw_spts[i], urated
             )
             rotor_solutions[i].idx = i
             wakes[i] = self.wake_model(x, y, z, rotor_solutions[i], TIamb=self.TIamb)
