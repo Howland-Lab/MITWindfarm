@@ -14,7 +14,7 @@ from .Rotor import (
     AnalyticalAvgReferenceRotor
 )
 from .Windfield import Windfield, Uniform
-from .Wake import WakeModel, Wake, GaussianWakeModel
+from .Wake import WakeModel, Wake, GaussianWakeModel, VariableKwGaussianWakeModel
 from .Superposition import Superposition, Linear
 
 
@@ -146,7 +146,7 @@ class ReferenceWindfarm:
                 normalized by the free stream wind speed.
 
         Returns:
-            - a WindfarmSolution object.
+            - a WindfarmSolution object normalized by the free stream velocity.
         """
         N = layout.x.size
         wakes = N * [None]
@@ -185,11 +185,12 @@ class AnalyticalAvgWindfarm:
     def __init__(
         self,
         rotor_model: Union[AnalyticalAvgAD, AnalyticalAvgUnifiedAD] = None,
+        wake_model: Union[GaussianWakeModel, VariableKwGaussianWakeModel] = None,
         base_windfield: Optional[Windfield] = None,
         TIamb: float = None,
     ):
         self.rotor_model = AnalyticalAvgAD() if rotor_model is None else rotor_model
-        self.wake_model = GaussianWakeModel()
+        self.wake_model = GaussianWakeModel() if wake_model is None else wake_model
         self.superposition = Linear()
         self.base_windfield = (
             Uniform(TIamb=TIamb) if base_windfield is None else base_windfield
@@ -231,14 +232,15 @@ class AnalyticalAvgWindfarm:
 class AnalyticalAvgReferenceWindfarm:
     def __init__(
         self,
-        rotor_model: Union[AnalyticalAvgReferenceRotor] = None,
+        rotor_model: Optional[AnalyticalAvgReferenceRotor] = None,
+        wake_model: Union[GaussianWakeModel, VariableKwGaussianWakeModel] = None,
         base_windfield: Optional[Windfield] = None,
         TIamb: float = None,
     ):
         self.rotor_model = (
             AnalyticalAvgReferenceRotor() if rotor_model is None else rotor_model
         )
-        self.wake_model = GaussianWakeModel()
+        self.wake_model = GaussianWakeModel() if wake_model is None else wake_model
         self.superposition = Linear()
         self.base_windfield = (
             Uniform(TIamb=TIamb) if base_windfield is None else base_windfield

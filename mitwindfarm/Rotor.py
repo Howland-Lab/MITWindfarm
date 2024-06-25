@@ -258,7 +258,7 @@ class AnalyticalAvgAD(Rotor):
         sol: MomentumSolution = self._model(Ctprime, yaw)
 
         # sample analytically line-averaged rotor effective wind speed
-        REWS = windfield.RE_wsp(x, y, z)
+        REWS = np.mean(windfield.RE_wsp(x, y, z))
 
         # compute rotor equivalent turbulence intensity
         x = x * np.array([1])
