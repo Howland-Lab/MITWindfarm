@@ -48,7 +48,7 @@ class GaussianWake(Wake):
         sigma: float = 0.25,
         kw: float = 0.07,
         TIamb: float = None,
-        xmax: float = 100.0,
+        xmax: float = 201.0,
         dx: float = 0.05,
     ):
         self.x, self.y, self.z = x, y, z
