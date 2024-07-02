@@ -3,7 +3,7 @@ from typing import Optional, TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import ArrayLike
-from scipy.integrate import cumtrapz
+from scipy.integrate import cumulative_trapezoid
 from scipy.special import erf
 
 if TYPE_CHECKING:
@@ -48,7 +48,7 @@ class GaussianWake(Wake):
         sigma: float = 0.25,
         kw: float = 0.07,
         TIamb: float = None,
-        xmax: float = 100.0,
+        xmax: float = 201.0,
         dx: float = 0.05,
     ):
         self.x, self.y, self.z = x, y, z
@@ -71,7 +71,7 @@ class GaussianWake(Wake):
         d = self._wake_diameter(_x)
 
         dv = -0.5 / d**2 * (1 + erf(_x / (np.sqrt(2) / 2)))
-        _yc = cumtrapz(-dv, dx=dx, initial=0)
+        _yc = cumulative_trapezoid(-dv, dx=dx, initial=0)
 
         return _x, _yc
 
@@ -155,7 +155,7 @@ class GaussianWake(Wake):
         )
 
         return gaussian_ * np.nan_to_num(WATI)
-    
+
     def RE_wake_added_turbulence(
         self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0
     ) -> ArrayLike:
@@ -165,27 +165,25 @@ class GaussianWake(Wake):
 
         Returns wake added turbulence intensity caused by a wake at a particular
         rotor by computing the overlap of a 4 sigma diameter (double wake width)
-        top hat with the downstream rotor. """
-         
+        top hat with the downstream rotor."""
+
         x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
         R = 2 * self.sigma * self._wake_diameter(x)
         r = 0.5
-        d = np.sqrt(y ** 2 + z ** 2)
+        d = np.sqrt(y**2 + z**2)
 
         WATI = self.centerline_wake_added_turb(x)
 
-        with np.errstate(all = "ignore"):
+        with np.errstate(all="ignore"):
             wake_overlap = (
-                (r ** 2) * np.arccos((d ** 2 + r ** 2 - R ** 2) / (2 * d * r)) + 
-                (R ** 2) * np.arccos((d ** 2 + R ** 2 - r ** 2) / (2 * d * R)) -
-                0.5 * np.sqrt((-d + r + R)*(d + r - R)*(d - r + R)*(d + r + R))
+                (r**2) * np.arccos((d**2 + r**2 - R**2) / (2 * d * r))
+                + (R**2) * np.arccos((d**2 + R**2 - r**2) / (2 * d * R))
+                - 0.5 * np.sqrt((-d + r + R) * (d + r - R) * (d - r + R) * (d + r + R))
             )
             wake_overlap[d > r + R] = 0
-            wake_overlap[d < R - r] = np.pi * r ** 2
+            wake_overlap[d < R - r] = np.pi * r**2
             return (wake_overlap * 4 * np.nan_to_num(WATI)) / np.pi
 
-   
-        
     def deficit_and_WATI(
         self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0
     ) -> tuple[ArrayLike, ArrayLike]:
@@ -205,14 +203,15 @@ class GaussianWake(Wake):
 
         return gaussian_ * du, gaussian_ * WATI
 
-    def line_deficit(self, x: np.array, y: np.array):
+    def line_deficit(self, x_glob: np.array, y_glob: np.array):
         """
         Returns the deficit at hub height averaged along a lateral line of
         length 1, centered at (x, y).
         """
+        x, y = x_glob - self.x, y_glob - self.y
 
         d = self._wake_diameter(x)
-        yc = self.centerline(x)
+        yc = self.centerline(x_glob) - self.y
         du = self._du(x, wake_diameter=d)
 
         erf_plus = erf((y + 0.5 - yc) / (np.sqrt(2) * self.sigma * d))
@@ -230,7 +229,12 @@ class GaussianWakeModel(WakeModel):
         self.xmax = xmax
 
     def __call__(
-        self, x: float, y: float, z: float, rotor_sol: "RotorSolution", TIamb: float = None
+        self,
+        x: float,
+        y: float,
+        z: float,
+        rotor_sol: "RotorSolution",
+        TIamb: float = None,
     ) -> GaussianWake:
         return GaussianWake(
             x,
@@ -241,4 +245,26 @@ class GaussianWakeModel(WakeModel):
             kw=self.kw,
             TIamb=TIamb,
             xmax=self.xmax,
+        )
+
+
+class VariableKwGaussianWakeModel(WakeModel):
+    def __init__(
+        self,
+        a: float = 0.7516,
+        b: float = 0.0196,
+        sigma: float = 0.25,
+        xmax: float = 100.0,
+    ):
+        self.a = a
+        self.b = b
+        self.sigma = sigma
+        self.xmax = xmax
+
+    def __call__(
+        self, x, y, z, rotor_sol: "RotorSolution", TIamb: float = None
+    ) -> GaussianWake:
+        kw = self.a * rotor_sol.TI + self.b
+        return GaussianWake(
+            x, y, z, rotor_sol, sigma=self.sigma, kw=kw, TIamb=TIamb, xmax=self.xmax
         )

@@ -1,4 +1,6 @@
-from mitwindfarm import Windfield, BEM, UnifiedAD, AD, RotorSolution
+import numpy as np
+
+from mitwindfarm import Windfield, BEM, UnifiedAD, AD, RotorSolution, Layout, Windfarm, AnalyticalAvgWindfarm
 from MITRotor.ReferenceTurbines import IEA15MW
 
 
@@ -58,3 +60,6 @@ def test_ad_rotor():
     assert isinstance(solution.an, float)
     assert isinstance(solution.u4, float)
     assert isinstance(solution.v4, float)
+
+
+    
