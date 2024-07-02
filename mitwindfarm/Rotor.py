@@ -198,8 +198,9 @@ class ReferenceRotor(Rotor):
         REWS = self.rotor_grid.average(Us)
 
         # if no Ctprime is given, get Ctprime from ThrustCurve
+        ref_Ctprime = self._refcurve.thrust(REWS / urated)
         Ctprime = (
-            self._refcurve.thrust(REWS / urated) if Ctprime is None else Ctprime
+            ref_Ctprime if Ctprime is None else Ctprime
         )
 
         # Calculate rotor solution (independent of wind field in this model)
@@ -211,9 +212,9 @@ class ReferenceRotor(Rotor):
         z = z * np.array([1])
         RETI = np.mean(windfield.RETI(x, y, z))
 
-        u_corr = REWS * (1 + 0.25 * Ctprime) * (1 - sol.an) * np.cos(yaw)
+        u_corr = REWS * (1 + 0.25 * ref_Ctprime) * (1 - sol.an) * np.cos(yaw)
 
-        Cp = self._refcurve.power(u_corr / urated) * (u_corr**3)
+        Cp = (Ctprime / ref_Ctprime) * self._refcurve.power(u_corr / urated) * (u_corr**3)
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
@@ -332,9 +333,9 @@ class AnalyticalAvgReferenceRotor(Rotor):
         REWS = np.mean(windfield.RE_wsp(x, y, z))
 
         # if no Ctprime is given, get Ctprime from ThrustCurve
-        ref_thrust = True if Ctprime is None else False
+        ref_Ctprime = self._refcurve.thrust(REWS / urated)
         Ctprime = (
-            self._refcurve.thrust(REWS / urated) if Ctprime is None else Ctprime
+            ref_Ctprime if Ctprime is None else Ctprime
         )
 
         # Calculate rotor solution (independent of wind field in this model)
@@ -346,9 +347,9 @@ class AnalyticalAvgReferenceRotor(Rotor):
         z = z * np.array([1])
         RETI = np.mean(windfield.RETI(x, y, z))
 
-        u_corr = REWS * (1 + 0.25 * Ctprime) * (1 - sol.an) * np.cos(yaw)
+        u_corr = REWS * (1 + 0.25 * ref_Ctprime) * (1 - sol.an) * np.cos(yaw)
 
-        Cp = self._refcurve.power(u_corr / urated) * (u_corr**3)
+        Cp = (Ctprime / ref_Ctprime) * self._refcurve.power(u_corr / urated) * (u_corr**3)
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
