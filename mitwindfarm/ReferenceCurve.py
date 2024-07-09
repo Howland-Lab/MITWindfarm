@@ -13,7 +13,12 @@ import polars as pl
 import numpy as np
 import os
 
+from scipy.optimize import minimize
+
+from UnifiedMomentumModel.Momentum import Heck
+
 path = os.path.dirname(__file__)
+
 
 
 class ReferenceCurve(ABC):
@@ -33,6 +38,13 @@ class ReferenceCurve(ABC):
     #         Ctprime (float): The Ctprime setpoint for the turbine based on the
     #             reference model."""
     #     pass
+    def thrust(self, REWS):
+        dimensional_REWS = REWS * self.rated_ws
+        return np.interp(dimensional_REWS, self.windspeeds, self.ctprimes)
+
+    def power(self, REWS):
+        dimensional_REWS = REWS * self.rated_ws
+        return np.interp(dimensional_REWS, self.windspeeds, self.cps)
 
 
 class ReferenceCurve_IEA15MW(ReferenceCurve):
@@ -278,10 +290,47 @@ class ReferenceCurve_IEA15MW(ReferenceCurve):
             ]
         )
 
-    def thrust(self, REWS):
-        dimensional_REWS = REWS * self.rated_ws
-        return np.interp(dimensional_REWS, self.windspeeds, self.ctprimes)
+    # def thrust(self, REWS):
+    #     dimensional_REWS = REWS * self.rated_ws
+    #     return np.interp(dimensional_REWS, self.windspeeds, self.ctprimes)
 
-    def power(self, REWS):
-        dimensional_REWS = REWS * self.rated_ws
-        return np.interp(dimensional_REWS, self.windspeeds, self.cps)
+    # def power(self, REWS):
+    #     dimensional_REWS = REWS * self.rated_ws
+    #     return np.interp(dimensional_REWS, self.windspeeds, self.cps)
+
+class IndividualControl(ReferenceCurve):
+    def __init__(self, cutin: float = 3.0, rated: float = 10.59, cutout:float=25.0):
+        self.AD_model = Heck()
+        self.cutin_ws = cutin
+        self.rated_ws = rated
+        self.cutout = cutout
+        self.windspeeds = np.linspace(2, 25, 200)
+
+        
+
+        def get_optimal_power(windspeed):
+            
+            def f(x):
+                return - self.AD_model(x, 0.0).Cp
+
+            def constraint_func(x):
+                cp = self.AD_model(x, 0.0).Cp[0]
+                rotor_ws = windspeed
+                # breakpoint()
+                return [(rotor_ws - cutin) * cp + 0.001, (16/27) - (cp * ((rotor_ws / rated) ** 3))]
+                # return [1, (16/27) - (cp * (windspeed / rated) ** 3)]
+                # return [1, 1]
+
+
+            constraint = dict(type="ineq", fun=constraint_func)
+
+            sol = minimize(f, x0 = 0.0001, constraints=constraint)
+            return sol.x[0], - sol.fun 
+
+        
+        ws_sols = [get_optimal_power(windspeed) for windspeed in self.windspeeds]
+
+        self.ctprimes = [x for x, y in ws_sols]
+        self.cps = [y for x, y in ws_sols]
+
+

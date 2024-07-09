@@ -364,6 +364,86 @@ class AnalyticalAvgReferenceRotor(Rotor):
             TI=RETI,
             extra=sol,
         )
+    
+# class IndCtrlAnalyticalAvgAD(Rotor):
+#     """
+#     Actuator disk rotor model with thrust control at individual optimum
+#     and analytically averaged REWS.
+#     Methods:
+#     - __call__(Ctprime, yaw): Calculate the rotor solution for given Ctprime and yaw inputs.
+#     """
+
+#     def __init__(self, refcurve: ReferenceCurve = None):
+#         """
+#         Initialize the AD rotor model using the Heck momentum model with
+#         analytical REWS averaging.
+
+#         Parameters:
+#             - thrustcurve: a ThrustCurve object.
+
+#         Output:
+#             - a RotorSolution object.
+#         """
+#         self._model = Heck()
+#         self._refcurve = IndividualControl() if refcurve is None else refcurve
+
+#     def __call__(
+#         self,
+#         x: float,
+#         y: float,
+#         z: float,
+#         windfield: Windfield,
+#         Ctprime: float = None,
+#         yaw: float = 0.0,
+#         urated: float = None
+#     ) -> RotorSolution:
+#         """
+#         Calculate the rotor solution using analytically averaged REWS
+#         for given Ctprime and yaw inputs. If Ctprime is not given, use setpoint
+#         based on ThrustCurve, if yaw is not given, set yaw to zero.
+
+#         Parameters:
+#         - Ctprime (float): Thrust coefficient including the effect of yaw.
+#         - yaw (float): Yaw angle of the rotor.
+#         - u_rated: the rated windspeed of the reference turbine used
+#             non-dimensionalized by the freestream wind speed.
+
+#         Returns:
+#         - RotorSolution: The calculated rotor solution.
+#         """
+
+#         # sample analytically line-averaged rotor effective wind speed
+#         REWS = np.mean(windfield.RE_wsp(x, y, z))
+
+#         # if no Ctprime is given, get Ctprime from ThrustCurve
+#         Ctprime_ind_opt = self._refcurve.thrust(REWS / urated)
+#         Ctprime = (
+#             Ctprime_ind_opt if Ctprime is None else Ctprime
+#         )
+
+#         # Calculate rotor solution (independent of wind field in this model)
+#         sol: MomentumSolution = self._model(Ctprime, yaw)
+
+#         # compute rotor equivalent turbulence intensity
+#         x = x * np.array([1])
+#         y = y * np.array([1])
+#         z = z * np.array([1])
+#         RETI = np.mean(windfield.RETI(x, y, z))
+
+
+#         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
+#         return RotorSolution(
+#             yaw,
+#             sol.Cp * REWS**3,
+#             sol.Ct * REWS**2,
+#             sol.Ctprime,
+#             sol.an * REWS,
+#             sol.u4 * REWS,
+#             sol.v4 * REWS,
+#             REWS,
+#             TI=RETI,
+#             extra=sol,
+#         )
 
 
 class UnifiedAD(Rotor):
