@@ -167,7 +167,6 @@ class ReferenceRotor(Rotor):
         y: float,
         z: float,
         windfield: Windfield,
-        Ctprime: float = None,
         yaw: float = 0.0,
         urated: float = None
     ) -> RotorSolution:
@@ -198,11 +197,8 @@ class ReferenceRotor(Rotor):
         REWS = self.rotor_grid.average(Us)
 
         # if no Ctprime is given, get Ctprime from ThrustCurve
-        ref_Ctprime = self._refcurve.thrust(REWS / urated)
-        Ctprime = (
-            ref_Ctprime if Ctprime is None else Ctprime
-        )
-
+        Ctprime = self._refcurve.thrust(REWS / urated)
+        
         # Calculate rotor solution (independent of wind field in this model)
         sol: MomentumSolution = self._model(Ctprime, yaw)
 
@@ -212,9 +208,9 @@ class ReferenceRotor(Rotor):
         z = z * np.array([1])
         RETI = np.mean(windfield.RETI(x, y, z))
 
-        u_corr = REWS * (1 + 0.25 * ref_Ctprime) * (1 - sol.an) * np.cos(yaw)
+        u_corr = REWS * (1 + 0.25 * Ctprime) * (1 - sol.an) * np.cos(yaw)
 
-        Cp = (Ctprime / ref_Ctprime) * self._refcurve.power(u_corr / urated) * (u_corr**3)
+        Cp = self._refcurve.power(u_corr / urated) * (u_corr**3)
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
@@ -310,33 +306,28 @@ class AnalyticalAvgReferenceRotor(Rotor):
         y: float,
         z: float,
         windfield: Windfield,
-        Ctprime: float = None,
         yaw: float = 0.0,
         urated: float = None
     ) -> RotorSolution:
         """
         Calculate the rotor solution using analytically averaged REWS
-        for given Ctprime and yaw inputs. If Ctprime is not given, use setpoint
+        for given yaw inputs. Ctprime setpoint is
         based on ThrustCurve, if yaw is not given, set yaw to zero.
 
         Parameters:
-        - Ctprime (float): Thrust coefficient including the effect of yaw.
-        - yaw (float): Yaw angle of the rotor.
-        - u_rated: the rated windspeed of the reference turbine used
-            non-dimensionalized by the freestream wind speed.
+            - yaw (float): Yaw angle of the rotor.
+            - u_rated: the rated windspeed of the reference turbine used
+                non-dimensionalized by the freestream wind speed.
 
         Returns:
-        - RotorSolution: The calculated rotor solution.
+            - RotorSolution: The calculated rotor solution.
         """
 
         # sample analytically line-averaged rotor effective wind speed
         REWS = np.mean(windfield.RE_wsp(x, y, z))
 
         # if no Ctprime is given, get Ctprime from ThrustCurve
-        ref_Ctprime = self._refcurve.thrust(REWS / urated)
-        Ctprime = (
-            ref_Ctprime if Ctprime is None else Ctprime
-        )
+        Ctprime = self._refcurve.thrust(REWS / urated)
 
         # Calculate rotor solution (independent of wind field in this model)
         sol: MomentumSolution = self._model(Ctprime, yaw)
@@ -347,9 +338,9 @@ class AnalyticalAvgReferenceRotor(Rotor):
         z = z * np.array([1])
         RETI = np.mean(windfield.RETI(x, y, z))
 
-        u_corr = REWS * (1 + 0.25 * ref_Ctprime) * (1 - sol.an) * np.cos(yaw)
+        u_corr = REWS * (1 + 0.25 * Ctprime) * (1 - sol.an) * np.cos(yaw)
 
-        Cp = (Ctprime / ref_Ctprime) * self._refcurve.power(u_corr / urated) * (u_corr**3)
+        Cp = self._refcurve.power(u_corr / urated) * (u_corr**3)
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
