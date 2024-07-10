@@ -142,7 +142,6 @@ class ReferenceWindfarm:
     def __call__(
         self,
         layout: Layout,
-        thrust_spts: list[float],
         yaw_spts: list[float],
         urated: float,
         base_windfield: Optional[Windfield] = None,
@@ -172,7 +171,7 @@ class ReferenceWindfarm:
         windfield = self.superposition(base_windfield, [])
         for i, (x, y, z) in layout.iter_downstream():
             rotor_solutions[i] = self.rotor_model(
-                x, y, z, windfield, thrust_spts[i], yaw_spts[i], urated
+                x, y, z, windfield, yaw_spts[i], urated
             )
             rotor_solutions[i].idx = i
             wakes[i] = self.wake_model(x, y, z, rotor_solutions[i], TIamb=TIamb)
@@ -283,7 +282,6 @@ class AnalyticalAvgReferenceWindfarm:
     def __call__(
         self,
         layout: Layout,
-        thrust_spts: list[float],
         yaw_spts: list[float],
         urated: float,
         base_windfield: Optional[Windfield] = None,
@@ -302,7 +300,7 @@ class AnalyticalAvgReferenceWindfarm:
         windfield = self.superposition(base_windfield, [])
         for i, (x, y, z) in layout.iter_downstream():
             rotor_solutions[i] = self.rotor_model(
-                x, y, z, windfield, thrust_spts[i], yaw_spts[i], urated
+                x, y, z, windfield, yaw_spts[i], urated
             )
             rotor_solutions[i].idx = i
             wakes[i] = self.wake_model(x, y, z, rotor_solutions[i], TIamb=TIamb)
