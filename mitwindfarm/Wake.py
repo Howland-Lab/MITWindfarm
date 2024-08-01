@@ -3,7 +3,7 @@ from typing import Optional, TYPE_CHECKING
 
 import numpy as np
 from numpy.typing import ArrayLike
-from scipy.integrate import cumtrapz
+from scipy.integrate import cumulative_trapezoid
 from scipy.special import erf
 
 if TYPE_CHECKING:
@@ -71,7 +71,7 @@ class GaussianWake(Wake):
         d = self._wake_diameter(_x)
 
         dv = -0.5 / d**2 * (1 + erf(_x / (np.sqrt(2) / 2)))
-        _yc = cumtrapz(-dv, dx=dx, initial=0)
+        _yc = cumulative_trapezoid(-dv, dx=dx, initial=0)
 
         return _x, _yc
 
