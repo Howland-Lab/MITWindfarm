@@ -63,21 +63,6 @@ class Windfield(ABC):
         pass
 
     @abstractmethod
-    def wsp_and_TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
-        """
-        Calculate wind speed and turbulence intensity at specified coordinates.
-
-        Parameters:
-        - x: x-coordinates.
-        - y: y-coordinates.
-        - z: z-coordinates.
-
-        Returns:
-        ArrayLike: Wind speed at the specified coordinates.
-        """
-        pass
-
-    @abstractmethod
     def wdir(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """
         Calculate wind direction at specified coordinates.
@@ -134,21 +119,6 @@ class Uniform(Windfield):
         """
         return self.TIamb * np.ones_like(x)
 
-    def wsp_and_TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
-        """
-        Calculate wind speed and turbulence intensity at specified coordinates.
-
-        Parameters:
-        - x: x-coordinates.
-        - y: y-coordinates.
-        - z: z-coordinates.
-
-        Returns:
-        ArrayLike: Wind speed at the specified coordinates.
-        """
-        ones = np.ones_like(x)
-        return self.U0 * ones, self.TIamb * ones
-
     def wdir(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """
         Returns an array of zeros with the same shape as input coordinates.
@@ -187,20 +157,6 @@ class PowerLaw(Windfield):
     def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         return self.TIamb * np.ones_like(x)
 
-    def wsp_and_TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
-        """
-        Calculate wind speed and turbulence intensity at specified coordinates.
-
-        Parameters:
-        - x: x-coordinates.
-        - y: y-coordinates.
-        - z: z-coordinates.
-
-        Returns:
-        ArrayLike: Wind speed at the specified coordinates.
-        """
-        return self.wsp(x, y, z), self.TIamb * np.ones_like(x)
-
     def wdir(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         return np.zeros_like(x)
 
@@ -231,36 +187,10 @@ class Superimposed(Windfield):
         Returns:
         ArrayLike: Array of ones with the same shape as input coordinates.
         """
-        base = self.base_windfield.wsp(x, y, z)
-        deficits = np.array([wake.deficit(x, y, z) for wake in self.wakes])
-
-        if self.method == "linear":
-            out = base - deficits.sum(axis=0)
-        elif self.method == "quadratic":
-            out = base - np.sqrt(np.sum(deficits**2, axis=0))
-        elif self.method == "dominant":
-            out = base - deficits.max(axis=0, initial=0)
-        else:
-            raise NotImplementedError
-
-        return out
-
-    def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
-        base = self.base_windfield.TI(x, y, z)
-        WATIs = np.array([wake.wake_added_turbulence(x, y, z) for wake in self.wakes])
-
-        out = np.sqrt(base**2 + np.max(WATIs, axis=0) ** 2)
-
-        return out
-
-    def wsp_and_TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
-        wsp_base, TI_base = self.base_windfield.wsp_and_TI(x, y, z)
+        wsp_base = self.base_windfield.wsp(x, y, z)
         deficits = []
-        max_WATI = np.zeros_like(wsp_base)
         for wake in self.wakes:
-            _deficit, _WATI = wake.deficit_and_WATI(x, y, z)
-            deficits.append(_deficit)
-            max_WATI = np.maximum(_WATI, max_WATI)
+            deficits.append(wake.deficit(x, y, z))
 
         if len(deficits) == 0:
             deficits.append(np.zeros_like(wsp_base))
@@ -273,9 +203,19 @@ class Superimposed(Windfield):
             wsp_out = wsp_base - deficits.max(axis=0, initial=0)
         else:
             raise NotImplementedError
+
+        return wsp_out
+
+    def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        TI_base = self.base_windfield.TI(x, y, z)
+
+        max_WATI = np.zeros_like(TI_base)
+        for wake in self.wakes:
+            max_WATI = np.maximum(wake.wake_added_turbulence(x, y, z), max_WATI)
+
         TI_out = np.sqrt(TI_base**2 + max_WATI**2)
 
-        return wsp_out, TI_out
+        return TI_out
 
     def wdir(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """
