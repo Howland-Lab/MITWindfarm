@@ -255,15 +255,15 @@ class Superimposed(Windfield):
 
     def wsp_and_TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         wsp_base, TI_base = self.base_windfield.wsp_and_TI(x, y, z)
-        deficits, WATIs = [], []
+        deficits = []
+        max_WATI = np.zeros_like(wsp_base)
         for wake in self.wakes:
             _deficit, _WATI = wake.deficit_and_WATI(x, y, z)
             deficits.append(_deficit)
-            WATIs.append(_WATI)
+            max_WATI = np.maximum(_WATI, max_WATI)
 
         if len(deficits) == 0:
             deficits.append(np.zeros_like(wsp_base))
-            WATIs.append(np.zeros_like(wsp_base))
 
         if self.method == "linear":
             wsp_out = wsp_base - np.sum(deficits, axis=0)
@@ -273,7 +273,7 @@ class Superimposed(Windfield):
             wsp_out = wsp_base - deficits.max(axis=0, initial=0)
         else:
             raise NotImplementedError
-        TI_out = np.sqrt(TI_base**2 + np.max(WATIs, axis=0) ** 2)
+        TI_out = np.sqrt(TI_base**2 + max_WATI**2)
 
         return wsp_out, TI_out
 
