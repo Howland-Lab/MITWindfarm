@@ -14,28 +14,28 @@ class Wake(ABC):
     @abstractmethod
     def __init__(
         self, x: float, y: float, z: float, rotor_sol: "RotorSolution", **kwargs
-    ): ...
+    ):
+        ...
 
     @abstractmethod
-    def deficit(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike: ...
+    def deficit(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        ...
 
     @abstractmethod
     def wake_added_turbulence(
         self, x: ArrayLike, y: ArrayLike, z: ArrayLike
-    ) -> ArrayLike: ...
+    ) -> ArrayLike:
+        ...
 
     @abstractmethod
-    def deficit_and_WATI(
-        self, x: ArrayLike, y: ArrayLike, z: ArrayLike
-    ) -> ArrayLike: ...
-
-    @abstractmethod
-    def centerline(self, x: ArrayLike) -> ArrayLike: ...
+    def centerline(self, x: ArrayLike) -> ArrayLike:
+        ...
 
 
 class WakeModel(ABC):
     @abstractmethod
-    def __call__(self, x, y, z, rotor_sol: "RotorSolution") -> Wake: ...
+    def __call__(self, x, y, z, rotor_sol: "RotorSolution") -> Wake:
+        ...
 
 
 class GaussianWake(Wake):
@@ -50,10 +50,12 @@ class GaussianWake(Wake):
         TIamb: float = None,
         xmax: float = 100.0,
         dx: float = 0.05,
+        WATI_sigma_multiplier: float = 1.0,
     ):
         self.x, self.y, self.z = x, y, z
         self.rotor_sol = rotor_sol
         self.sigma, self.kw = sigma, kw
+        self.WATI_sigma_multiplier = WATI_sigma_multiplier
         self.TIamb = TIamb or 0.0
 
         # precompute centerline far downstream
@@ -141,39 +143,26 @@ class GaussianWake(Wake):
     ) -> ArrayLike:
         """
         Returns wake added turbulence intensity caused by a wake at particular
-        points in space. Laterally smeared with the same gaussian as the wake
-        deficit model.
+        points in space. Laterally smeared with the gaussian twice as wide as
+        the wake deficit model. as recommended by Niayifar and Porte-Agel 2016
         """
         x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
         d = self._wake_diameter(x)
         yc = self.centerline(x_glob) - self.y
         WATI = self.centerline_wake_added_turb(x)
-        gaussian_ = (
+
+        _gaussian = (
             1
-            / (8 * self.sigma**2)
-            * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
+            / (8 * (self.WATI_sigma_multiplier * self.sigma) ** 2)
+            * np.exp(
+                -(
+                    ((y - yc) ** 2 + z**2)
+                    / (2 * (self.WATI_sigma_multiplier * self.sigma) ** 2 * d**2)
+                )
+            )
         )
 
-        return gaussian_ * np.nan_to_num(WATI)
-
-    def deficit_and_WATI(
-        self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0
-    ) -> tuple[ArrayLike, ArrayLike]:
-        """
-        returns both the wake deficit and wake-added turbulence intensity at a point in space.
-        """
-        x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
-        d = self._wake_diameter(x)
-        yc = self.centerline(x_glob) - self.y
-        du = self._du(x, wake_diameter=d)
-        WATI = self.centerline_wake_added_turb(x)
-        gaussian_ = (
-            1
-            / (8 * self.sigma**2)
-            * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
-        )
-
-        return gaussian_ * du, gaussian_ * WATI
+        return _gaussian * np.nan_to_num(WATI)
 
     def line_deficit(self, x: np.array, y: np.array):
         """
@@ -194,7 +183,9 @@ class GaussianWake(Wake):
 
 
 class GaussianWakeModel(WakeModel):
-    def __init__(self, sigma=0.25, kw=0.07, xmax: float = 100.0):
+    def __init__(
+        self, sigma=0.25, kw=0.07, WATI_sigma_multiplier=1.0, xmax: float = 100.0
+    ):
         self.sigma = sigma
         self.kw = kw
         self.xmax = xmax
@@ -211,4 +202,5 @@ class GaussianWakeModel(WakeModel):
             kw=self.kw,
             TIamb=TIamb,
             xmax=self.xmax,
+            WATI_sigma_multiplier=self.WATI_sigma_multiplier,
         )
