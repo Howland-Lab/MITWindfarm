@@ -189,6 +189,7 @@ class GaussianWakeModel(WakeModel):
         self.sigma = sigma
         self.kw = kw
         self.xmax = xmax
+        self.WATI_sigma_multiplier = WATI_sigma_multiplier
 
     def __call__(
         self, x, y, z, rotor_sol: "RotorSolution", TIamb: float = None
@@ -200,6 +201,51 @@ class GaussianWakeModel(WakeModel):
             rotor_sol,
             sigma=self.sigma,
             kw=self.kw,
+            TIamb=TIamb,
+            xmax=self.xmax,
+            WATI_sigma_multiplier=self.WATI_sigma_multiplier,
+        )
+
+
+class VariableKwGaussianWakeModel(WakeModel):
+    """
+    Gaussian wake model which adjust the wake spreading rate (kw) based on the
+    Ctprime and the TI experienced by the wake-generating turbine.
+
+    Follows the linear relation:
+
+    kw = a * TI + b * Ctprime + c
+
+    where coefficients a, b, and c are provided at initialization.
+    """
+
+    def __init__(
+        self,
+        a: float,
+        b: float,
+        c: float,
+        sigma: float = 1 / np.sqrt(8),
+        WATI_sigma_multiplier=1.0,
+        xmax: float = 100.0,
+    ):
+        self.a = a
+        self.b = b
+        self.c = c
+        self.sigma = sigma
+        self.xmax = xmax
+        self.WATI_sigma_multiplier = WATI_sigma_multiplier
+
+    def __call__(
+        self, x, y, z, rotor_sol: "RotorSolution", TIamb: float = None
+    ) -> GaussianWake:
+        kw = self.a * rotor_sol.TI + self.b * rotor_sol.Ctprime + self.c
+        return GaussianWake(
+            x,
+            y,
+            z,
+            rotor_sol,
+            sigma=self.sigma,
+            kw=kw,
             TIamb=TIamb,
             xmax=self.xmax,
             WATI_sigma_multiplier=self.WATI_sigma_multiplier,
