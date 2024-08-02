@@ -48,6 +48,21 @@ class Windfield(ABC):
         pass
 
     @abstractmethod
+    def line_wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Calculate line averaged wind speed at the specified turbine location.
+
+        Parameters:
+        - x: x-coordinates.
+        - y: y-coordinates.
+        - z: z-coordinates.
+
+        Returns:
+        ArrayLike: Wind speed averaged along a lateral line of length 1, centered at (x, y).
+        """
+        pass
+
+    @abstractmethod
     def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """
         Calculate turbulence intensity at specified coordinates.
@@ -59,6 +74,21 @@ class Windfield(ABC):
 
         Returns:
         ArrayLike: Wind speed at the specified coordinates.
+        """
+        pass
+
+    @abstractmethod
+    def line_TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Calculate line averaged turbulence intensity at the specified turbine location.
+
+        Parameters:
+        - x: x-coordinates.
+        - y: y-coordinates.
+        - z: z-coordinates.
+
+        Returns:
+        ArrayLike: Turbulence intensity averaged along a lateral line of length 1, centered at (x, y).
         """
         pass
 
@@ -104,10 +134,10 @@ class Uniform(Windfield):
         ArrayLike: Array of ones with the same shape as input coordinates.
         """
         return self.U0 * np.ones_like(x)
-
-    def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+    
+    def line_wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """
-        Calculate wind speed and turbulence intensity at specified coordinates.
+        Returns ones with the same shape as the input coordinates.
 
         Parameters:
         - x: x-coordinates.
@@ -115,7 +145,35 @@ class Uniform(Windfield):
         - z: z-coordinates.
 
         Returns:
-        ArrayLike: Wind speed at the specified coordinates.
+        float: 1
+        """
+        return np.ones_like(x)
+
+    def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Calculate turbulence intensity at specified coordinates.
+
+        Parameters:
+        - x: x-coordinates.
+        - y: y-coordinates.
+        - z: z-coordinates.
+
+        Returns:
+        ArrayLike: Turbulence intensity at the specified coordinates.
+        """
+        return self.TIamb * np.ones_like(x)
+    
+    def line_TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Calculate line averaged turbulence intensity at specified coordinates.
+
+        Parameters:
+        - x: x-coordinates.
+        - y: y-coordinates.
+        - z: z-coordinates.
+
+        Returns:
+        float: Turbulence intensity averaged along a lateral line of length 1, centered at (x, y).
         """
         return self.TIamb * np.ones_like(x)
 
@@ -153,8 +211,16 @@ class PowerLaw(Windfield):
         u = self.Uref * (z / self.zref) ** self.exp
         u = np.nan_to_num(u)
         return u
+    
+    def line_wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        u = self.Uref * (z / self.zref) ** self.exp
+        u = np.nan_to_num(u)
+        return u
 
     def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        return self.TIamb * np.ones_like(x)
+    
+    def line_TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         return self.TIamb * np.ones_like(x)
 
     def wdir(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
@@ -205,6 +271,28 @@ class Superimposed(Windfield):
             raise NotImplementedError
 
         return wsp_out
+    
+    def line_wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Returns analytically line averaged rotor-equivalent wind speed at 
+            specified coordinates using linear Niayifar superposition.
+
+        Parameters:
+        - x: x-coordinate.
+        - y: y-coordinate.
+        - z: z-coordinates.
+
+        Returns:
+        ArrayLike: Wind speed averaged along a lateral line of length 1, centered at (x, y).
+        """
+        base = self.base_windfield.line_wsp(x, y, z)
+        deficits = []
+        for wake in self.wakes:
+            deficits.append(wake.line_deficit(x, y))
+        out = base - np.sum(deficits, axis=0)
+
+        return out
+
 
     def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         TI_base = self.base_windfield.TI(x, y, z)
@@ -216,6 +304,16 @@ class Superimposed(Windfield):
         TI_out = np.sqrt(TI_base**2 + max_WATI**2)
 
         return TI_out
+    
+    def line_TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        base = self.base_windfield.line_TI(x, y, z)
+        WATIs = [wake.line_wake_added_turbulence(x, y) for wake in self.wakes]
+        if len(self.wakes) == 0:
+            WATIs = np.zeros_like(base)
+        out = np.sqrt(base**2 + np.max(WATIs, axis=0) ** 2)
+
+        return out
+
 
     def wdir(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """

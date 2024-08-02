@@ -76,7 +76,7 @@ class Rotor(ABC):
 
 class AD(Rotor):
     """
-    Axial Distribution rotor model.
+    Actuator disk rotor model.
 
     Methods:
     - __call__(Ctprime, yaw): Calculate the rotor solution for given Ctprime and yaw inputs.
@@ -193,8 +193,114 @@ class UnifiedAD(Rotor):
             TI=RETI,
             extra=sol,
         )
+    
+class AnalyticalAD(Rotor):
+    """
+    Actuator disk rotor model using analytically line averaged REWS.
+
+    Methods:
+    - __call__(Ctprime, yaw): Calculate the rotor solution for given Ctprime and yaw inputs.
+    """
+
+    def __init__(self):
+        """
+        Initialize the AD rotor model using the Heck momentum model.
+        """
+        self._model = Heck()
+
+    def __call__(
+        self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw
+    ) -> RotorSolution:
+        """
+        Calculate the rotor solution for given Ctprime and yaw inputs.
+
+        Parameters:
+        - Ctprime (float): Thrust coefficient including the effect of yaw.
+        - yaw (float): Yaw angle of the rotor.
+
+        Returns:
+        RotorSolution: The calculated rotor solution.
+        """
+        # Calculate rotor solution (independent of wind field in this model)
+        sol: MomentumSolution = self._model(Ctprime, yaw)
+
+        x = np.array([1]) * x
+        y = np.array([1]) * y
+        z = np.array([1]) * z
+
+        # analytically line-averaged rotor wind speed and turbulence intensity
+        REWS = windfield.line_wsp(x, y, z)
+        RETI = windfield.line_TI(x, y, z)
+
+        # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
+        return RotorSolution(
+            yaw,
+            sol.Cp * REWS**3,
+            sol.Ct * REWS**2,
+            sol.Ctprime,
+            sol.an * REWS,
+            sol.u4 * REWS,
+            sol.v4 * REWS,
+            REWS,
+            TI=RETI,
+            extra=sol,
+        )
 
 
+class AnalyticalUnifiedAD(Rotor):
+    """
+    Unified Momentum Model rotor with an axial induction factor which uses an analytically line averaged gaussian wake deficit and wake added TI distribution.
+
+    Attributes:
+    - beta (float): Axial induction factor.
+
+    Methods:
+    - __call__(Ctprime, yaw): Calculate the rotor solution for given Ctprime and yaw inputs.
+    """
+
+    def __init__(self, beta=0.1403):
+        """
+        Initialize the UnifiedAD rotor model with the given axial induction factor.
+
+        Parameters:
+        - beta (float): Axial induction factor (default is 0.1403).
+        """
+        self._model = UnifiedMomentum(beta=beta)
+
+    def __call__(
+        self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw
+    ) -> RotorSolution:
+        """
+        Calculate the rotor solution for given Ctprime and yaw inputs.
+
+        Parameters:
+        - Ctprime (float): Thrust coefficient including the effect of yaw.
+        - yaw (float): Yaw angle of the rotor.
+
+        Returns:
+        RotorSolution: The calculated rotor solution.
+        """
+        # Calculate rotor solution (independent of wind field in this model)
+        sol: MomentumSolution = self._model(Ctprime, yaw)
+
+        # analytically line-averaged rotor wind speed and turbulence intensity
+        REWS = windfield.line_wsp(x, y, z)
+        RETI = windfield.line_TI(x, y, z)
+
+        # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
+        return RotorSolution(
+            yaw,
+            sol.Cp * REWS**3,
+            sol.Ct * REWS**2,
+            sol.Ctprime,
+            sol.an * REWS,
+            sol.u4 * REWS,
+            sol.v4 * REWS,
+            REWS,
+            TI=RETI,
+            extra=sol,
+        )
+    
 class BEM(Rotor):
     """
     Blade Element Momentum (BEM) rotor model. Note: MITRotor is formulated in

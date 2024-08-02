@@ -164,14 +164,14 @@ class GaussianWake(Wake):
 
         return _gaussian * np.nan_to_num(WATI)
 
-    def line_deficit(self, x: np.array, y: np.array):
+    def line_deficit(self, x_glob: ArrayLike, y_glob: ArrayLike) -> ArrayLike:
         """
         Returns the deficit at hub height averaged along a lateral line of
         length 1, centered at (x, y).
         """
-
+        x, y = x_glob - self.x, y_glob - self.y
         d = self._wake_diameter(x)
-        yc = self.centerline(x)
+        yc = self.centerline(x_glob) - self.y
         du = self._du(x, wake_diameter=d)
 
         erf_plus = erf((y + 0.5 - yc) / (np.sqrt(2) * self.sigma * d))
@@ -180,6 +180,36 @@ class GaussianWake(Wake):
         deficit_ = np.sqrt(2 * np.pi) * d / (16 * self.sigma) * (erf_plus - erf_minus)
 
         return deficit_ * du
+
+    def line_wake_added_turbulence(self, x_glob: ArrayLike, y_glob: ArrayLike) -> ArrayLike:
+        """
+        Returns wake added turbulence intensity caused by a wake at hub height
+        averaged along a lateral line of length 1, centered at (x, y). Laterally 
+        smeared with the gaussian twice as wide as the wake deficit model as 
+        recommended by Niayifar and Porte-Agel 2016.
+        """
+        x, y = x_glob - self.x, y_glob - self.y
+        d = self._wake_diameter(x)
+        yc = self.centerline(x_glob) - self.y
+        WATI = self.centerline_wake_added_turb(x)
+
+        erf_plus = erf(
+            (y + 0.5 - yc)
+            / (np.sqrt(2) * (self.WATI_sigma_multiplier * self.sigma) * d)
+        )
+        erf_minus = erf(
+            (y - 0.5 - yc)
+            / (np.sqrt(2) * (self.WATI_sigma_multiplier * self.sigma) * d)
+        )
+
+        _gaussian_integral = (
+            np.sqrt(2 * np.pi)
+            * d
+            / (16 * self.WATI_sigma_multiplier * self.sigma)
+            * (erf_plus - erf_minus)
+        )
+
+        return _gaussian_integral * np.nan_to_num(WATI)
 
 
 class GaussianWakeModel(WakeModel):
