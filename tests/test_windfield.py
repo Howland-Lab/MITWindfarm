@@ -35,6 +35,12 @@ def test_custom_windfield():
 
         def TI(self, x, y, z):
             return x - y - z
+        
+        def line_wsp(self, x, y, z):
+            return x - y - z
+        
+        def line_TI(self, x, y, z):
+            return x * y * z
 
     custom_windfield = CustomWindfield()
     x = np.array([1, 2, 3])
