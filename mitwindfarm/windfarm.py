@@ -21,7 +21,10 @@ class WindfarmSolution:
     @property
     def Cp(self):
         cp_rotors = [x.Cp for x in self.rotors]
-        return np.sum(cp_rotors) / len(cp_rotors)
+        cp_sum = 0.0
+        for i, cp in enumerate(cp_rotors):
+            cp_sum = cp_sum + cp
+        return cp_sum / len(cp_rotors)
 
     def to_dict(self) -> dict:
         return PartialWindfarmSolution.from_WindfarmSolution(self).to_dict()
