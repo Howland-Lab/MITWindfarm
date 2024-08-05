@@ -356,7 +356,7 @@ class FixedControlAD(Rotor):
         RETI = np.sqrt(self.rotor_grid.average(TIs**2))
 
         # get Ctprime from SetpointCurve
-        Ctprime = self.setpoint_curve.thrust(REWS / u_rated)
+        Ctprime = self.setpoint_curve(REWS / u_rated)
         yaw = 0.0
         
         # Calculate rotor solution (independent of wind field in this model)
@@ -424,7 +424,7 @@ class FixedControlAnalyticalAD(Rotor):
         RETI = windfield.line_TI(x, y, z)
 
         # get Ctprime from SetpointCurve
-        Ctprime = self.setpoint_curve.thrust(REWS / u_rated)
+        Ctprime = self.setpoint_curve(REWS / u_rated)
         yaw = 0.0
         
         # Calculate rotor solution (independent of wind field in this model)
