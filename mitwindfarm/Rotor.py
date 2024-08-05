@@ -301,7 +301,8 @@ class AnalyticalUnifiedAD(Rotor):
             TI=RETI,
             extra=sol,
         )
-    
+
+
 class FixedControlAD(Rotor):
     """
     Actuator disk rotor model with a fixed thrust setpoint control strategy based on wind speed at rotor.
@@ -318,15 +319,12 @@ class FixedControlAD(Rotor):
             self.rotor_grid = Area()
         else:
             self.rotor_grid = rotor_grid
-        self.setpoint_curve = SetpointCurve() if setpoint_curve is None else setpoint_curve
+        self.setpoint_curve = (
+            SetpointCurve() if setpoint_curve is None else setpoint_curve
+        )
 
     def __call__(
-        self,
-        x: float,
-        y: float,
-        z: float,
-        windfield: Windfield,
-        u_rated: float
+        self, x: float, y: float, z: float, windfield: Windfield, u_rated: float
     ) -> RotorSolution:
         """
         Calculate the rotor solution for given Ctprime and yaw inputs. If
@@ -351,14 +349,14 @@ class FixedControlAD(Rotor):
         # sample windfield and calculate rotor effective wind speed
         Us = windfield.wsp(xs_glob, ys_glob, zs_glob)
         TIs = windfield.TI(xs_glob, ys_glob, zs_glob)
-        
+
         REWS = self.rotor_grid.average(Us)
         RETI = np.sqrt(self.rotor_grid.average(TIs**2))
 
         # get Ctprime from SetpointCurve
         Ctprime = self.setpoint_curve(REWS / u_rated)
         yaw = 0.0
-        
+
         # Calculate rotor solution (independent of wind field in this model)
         sol: MomentumSolution = self._model(Ctprime, yaw)
 
@@ -376,27 +374,29 @@ class FixedControlAD(Rotor):
             extra=sol,
         )
 
+
 class FixedControlAnalyticalAD(Rotor):
     """
-    Actuator disk rotor model with a fixed thrust setpoint control strategy based on wind speed at rotor using analytically line averaged REWS.
+    Actuator disk rotor model with a fixed thrust setpoint control strategy
+    based on wind speed at rotor using analytically line averaged REWS.
 
     Methods:
     - __call__(x, y, z, windfield): Calculate the rotor solution for given Ctprime and yaw inputs.
     """
-    def __init__(self, rotor_grid: RotorGrid = None, setpoint_curve: SetpointCurve = None):
+
+    def __init__(
+        self, rotor_grid: RotorGrid = None, setpoint_curve: SetpointCurve = None
+    ):
         """
         Initialize the AD rotor model using the Heck momentum model.
         """
         self._model = Heck()
-        self.setpoint_curve = SetpointCurve() if setpoint_curve is None else setpoint_curve
+        self.setpoint_curve = (
+            SetpointCurve() if setpoint_curve is None else setpoint_curve
+        )
 
     def __call__(
-        self,
-        x: float,
-        y: float,
-        z: float,
-        windfield: Windfield,
-        u_rated: float
+        self, x: float, y: float, z: float, windfield: Windfield, u_rated: float
     ) -> RotorSolution:
         """
         Calculate the rotor solution for given Ctprime and yaw inputs. If
@@ -443,7 +443,8 @@ class FixedControlAnalyticalAD(Rotor):
             TI=RETI,
             extra=sol,
         )
-    
+
+
 class BEM(Rotor):
     """
     Blade Element Momentum (BEM) rotor model. Note: MITRotor is formulated in
