@@ -18,7 +18,7 @@ from UnifiedMomentumModel.Momentum import Heck
 
 class SetpointCurve():
     """
-    Thrust setpoint curve for an actuator disk operating above rated wind speed.
+    Thrust setpoint curve for an actuator disk operating at individual control optimum.
 
     """
     def __init__(self, rated: float = 10.59, cutout:float=25.0):
@@ -48,6 +48,12 @@ class SetpointCurve():
     def __call__(self, REWS):
         """
         Returns the 'greedy' individual control setpoint for the specified wind speed.
+
+        Parameters:
+        - REWS (float): the wind speed at the turbine rotor normalized by the rated wind speed.
+
+        Returns:
+        - float: the Ct' control setpoint.
         """
 
         dimensional_REWS = REWS * self.rated_ws
