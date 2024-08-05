@@ -35,7 +35,7 @@ class SetpointCurve():
             def constraint_func(x):
                 cp = self.AD_model(x, 0.0).Cp[0]
                 rotor_ws = windspeed
-                return [(16/27) - (cp * ((rotor_ws / rated) ** 3))]
+                return (16/27) - (cp * ((rotor_ws / rated) ** 3))
 
             constraint = dict(type="ineq", fun=constraint_func)
             sol = minimize(f, x0 = 0.0001, constraints=constraint)
