@@ -318,7 +318,7 @@ class FixedControlAD(Rotor):
             self.rotor_grid = Area()
         else:
             self.rotor_grid = rotor_grid
-        self.setpoint_curve = setpoint_curve
+        self.setpoint_curve = SetpointCurve if setpoint_curve is None else setpoint_curve
 
     def __call__(
         self,
@@ -388,7 +388,7 @@ class FixedControlAnalyticalAD(Rotor):
         Initialize the AD rotor model using the Heck momentum model.
         """
         self._model = Heck()
-        self.setpoint_curve = setpoint_curve
+        self.setpoint_curve = SetpointCurve if setpoint_curve is None else setpoint_curve
 
     def __call__(
         self,
