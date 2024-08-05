@@ -20,7 +20,8 @@ class WindfarmSolution:
 
     @property
     def Cp(self):
-        return np.mean([x.Cp for x in self.rotors])
+        cp_rotors = [x.Cp for x in self.rotors]
+        return np.sum(cp_rotors) / len(cp_rotors)
 
     def to_dict(self) -> dict:
         return PartialWindfarmSolution.from_WindfarmSolution(self).to_dict()
