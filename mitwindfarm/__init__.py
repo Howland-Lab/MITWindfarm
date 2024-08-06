@@ -5,3 +5,4 @@ from .Superposition import Linear, Quadratic, Dominant
 from .Wake import WakeModel, GaussianWakeModel, GaussianWake, VariableKwGaussianWakeModel
 from .windfarm import WindfarmSolution, PartialWindfarmSolution, Windfarm, AnalyticalWindfarm, FixedControlWindfarm, FixedControlAnalyticalWindfarm
 from .Windfield import Uniform, PowerLaw, Superimposed
+from .SetpointCurve import SetpointCurve
