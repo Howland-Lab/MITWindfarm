@@ -25,7 +25,7 @@ class SetpointCurve():
         self.AD_model = Heck()
         self.rated_ws = rated
         self.cutout = cutout
-        self.windspeeds = np.linspace(2, cutout, 200)
+        self.windspeeds = np.linspace(2, cutout, 200) / rated
 
         def get_optimal_power(windspeed):
             
@@ -33,9 +33,9 @@ class SetpointCurve():
                 return - self.AD_model(x, 0.0).Cp
 
             def constraint_func(x):
-                cp = self.AD_model(x, 0.0).Cp[0]
-                rotor_ws = windspeed
-                return (16/27) - (cp * ((rotor_ws / rated) ** 3))
+                Cp = self.AD_model(x, 0.0).Cp[0]
+                Cp_max = ((16/27) * (1 / windspeed) ** 3)
+                return Cp_max - Cp
 
             constraint = dict(type="ineq", fun=constraint_func)
             sol = minimize(f, x0 = 0.0001, constraints=constraint)
