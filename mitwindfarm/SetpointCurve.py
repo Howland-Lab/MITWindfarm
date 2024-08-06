@@ -56,5 +56,4 @@ class SetpointCurve():
         - float: the Ct' control setpoint.
         """
 
-        dimensional_REWS = REWS * self.rated_ws
-        return np.interp(dimensional_REWS, self.windspeeds, self.ctprimes)
+        return np.interp(REWS, self.windspeeds, self.ctprimes)
