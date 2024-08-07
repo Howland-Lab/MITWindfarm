@@ -1,6 +1,6 @@
 from mitwindfarm import Windfield, BEM, UnifiedAD, AD, RotorSolution
 from MITRotor.ReferenceTurbines import IEA15MW
-
+import numpy as np
 
 def test_bem_rotor():
     bem_rotor = BEM(IEA15MW())
