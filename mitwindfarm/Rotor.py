@@ -284,6 +284,10 @@ class AnalyticalUnifiedAD(Rotor):
         # Calculate rotor solution (independent of wind field in this model)
         sol: MomentumSolution = self._model(Ctprime, yaw)
 
+        x = np.array([1]) * x
+        y = np.array([1]) * y
+        z = np.array([1]) * z
+
         # analytically line-averaged rotor wind speed and turbulence intensity
         REWS = windfield.line_wsp(x, y, z)
         RETI = windfield.line_TI(x, y, z)
