@@ -198,9 +198,9 @@ class Superimposed(Windfield):
         if self.method == "linear":
             wsp_out = wsp_base - np.sum(deficits, axis=0)
         elif self.method == "quadratic":
-            wsp_out = wsp_base - np.sqrt(np.sum(deficits**2, axis=0))
+            wsp_out = wsp_base - np.sqrt(np.sum(np.array(deficits)**2, axis=0))
         elif self.method == "dominant":
-            wsp_out = wsp_base - deficits.max(axis=0, initial=0)
+            wsp_out = wsp_base - np.array(deficits).max(axis=0, initial=0)
         else:
             raise NotImplementedError
 
