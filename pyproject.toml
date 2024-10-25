@@ -9,8 +9,11 @@ readme = "README.md"
 python = "^3.9"
 numpy = ">=1.16.5"
 scipy = ">=1.6"
-mitrotor = { git = "https://github.com/Howland-Lab/MITRotor.git" }
+mitrotor = { git = "https://github.com/Howland-Lab/MITRotor.git", branch = "add-NREL-5MW" }
 unified-momentum-model = { git = "https://github.com/Howland-Lab/Unified-Momentum-Model.git" }
+rick = "^0.6.8"
+rich = "^13.7.1"
+matplotlib = "^3.9.1.post1"
 
 [tool.poetry.group.dev.dependencies]
 ipython = "^8"
