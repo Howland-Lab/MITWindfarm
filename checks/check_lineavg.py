@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mitwindfarm import Windfarm, AnalyticalWindfarm, Windfarm, Line, AD, Layout
 
+
 windfarm_lineavg = AnalyticalWindfarm(TIamb= 0.07)
 windfarm_lineavg.wake_model.WATI_sigma_multiplier = 2.0
 windfarm_sample = Windfarm(rotor_model=AD(rotor_grid=Line()), TIamb= 0.07)
