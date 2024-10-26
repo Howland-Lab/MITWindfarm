@@ -7,7 +7,7 @@ from ._Layout import Layout
 from .Rotor import Rotor, AD, AnalyticalAD, AnalyticalUnifiedAD, RotorSolution, FixedControlAD, FixedControlAnalyticalAD
 from .Windfield import Windfield, Uniform
 from .Wake import WakeModel, Wake, GaussianWakeModel, VariableKwGaussianWakeModel
-from .Superposition import Superposition, Linear
+from .Superposition import Superposition, Linear, Niayifar
 
 
 @dataclass
@@ -109,12 +109,13 @@ class AnalyticalWindfarm(Windfarm):
         self,
         rotor_model: Union[AnalyticalAD, AnalyticalUnifiedAD] = None,
         wake_model: Union[GaussianWakeModel, VariableKwGaussianWakeModel] = None,
+        superposition: Union[Linear, Niayifar] = None,
         base_windfield: Optional[Windfield] = None,
         TIamb: float = None
     ):
         self.rotor_model = AnalyticalAD() if rotor_model is None else rotor_model
         self.wake_model = GaussianWakeModel() if wake_model is None else wake_model
-        self.superposition = Linear()
+        self.superposition = Linear() if superposition is None else superposition
         self.base_windfield = Uniform(TIamb=TIamb) if base_windfield is None else base_windfield
         self.TIamb = TIamb
 

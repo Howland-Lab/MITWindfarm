@@ -138,6 +138,28 @@ class GaussianWake(Wake):
 
         return gaussian_ * du
 
+    def niayifar_deficit(self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0) -> ArrayLike:
+        """
+        Solves Eq. C1
+        """
+        x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
+        d = self._wake_diameter(x)
+        yc = self.centerline(x_glob) - self.y
+
+
+        ##
+        du = 0.5 * (self.rotor_sol.REWS - self.rotor_sol.u4) / d**2 * (1 + erf(x / (np.sqrt(2) / 2)))
+
+        gaussian_ = (
+            1
+            / (8 * self.sigma**2)
+            * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
+        )
+       
+        return gaussian_ * du
+
+
+    
     def wake_added_turbulence(
         self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0
     ) -> ArrayLike:
@@ -180,6 +202,24 @@ class GaussianWake(Wake):
         deficit_ = np.sqrt(2 * np.pi) * d / (16 * self.sigma) * (erf_plus - erf_minus)
 
         return deficit_ * du
+
+    def niayifar_line_deficit(self, x_glob: ArrayLike, y_glob: ArrayLike) -> ArrayLike:
+        """
+        Returns the deficit at hub height averaged along a lateral line of
+        length 1, centered at (x, y).
+        """
+        x, y = x_glob - self.x, y_glob - self.y
+        d = self._wake_diameter(x)
+        yc = self.centerline(x_glob) - self.y
+        ##
+        du = 0.5 * (self.rotor_sol.REWS - self.rotor_sol.u4) / d**2 * (1 + erf(x / (np.sqrt(2) / 2)))
+
+        erf_plus = erf((y + 0.5 - yc) / (np.sqrt(2) * self.sigma * d))
+        erf_minus = erf((y - 0.5 - yc) / (np.sqrt(2) * self.sigma * d))
+
+        deficit_ = np.sqrt(2 * np.pi) * d / (16 * self.sigma) * (erf_plus - erf_minus)
+
+        return deficit_ * du 
 
     def line_wake_added_turbulence(self, x_glob: ArrayLike, y_glob: ArrayLike) -> ArrayLike:
         """
