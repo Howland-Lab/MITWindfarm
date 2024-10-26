@@ -152,11 +152,12 @@ class FixedControlAnalyticalWindfarm(FixedControlWindfarm):
     def __init__(
         self,
         wake_model: Union[GaussianWakeModel, VariableKwGaussianWakeModel] = None,
+        superposition: Union[Linear, Niayifar] = None,
         base_windfield: Optional[Windfield] = None,
         TIamb: float = None
     ):
         self.rotor_model = FixedControlAnalyticalAD()
         self.wake_model = GaussianWakeModel() if wake_model is None else wake_model
-        self.superposition = Linear()
+        self.superposition = Linear() if superposition is None else superposition
         self.base_windfield = Uniform(TIamb=TIamb) if base_windfield is None else base_windfield
         self.TIamb = TIamb
