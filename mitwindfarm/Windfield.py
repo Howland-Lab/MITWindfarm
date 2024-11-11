@@ -186,16 +186,19 @@ class Superimposed(Windfield):
 
         Returns:
         ArrayLike: Array of ones with the same shape as input coordinates.
-        """
+        """    
         wsp_base = self.base_windfield.wsp(x, y, z)
         deficits = []
         for wake in self.wakes:
-            deficits.append(wake.deficit(x, y, z))
-
+            if self.method == "niayifar":
+                deficits.append(wake.niayifar_deficit(x, y, z))
+            else:
+                deficits.append(wake.deficit(x, y, z))
+    
         if len(deficits) == 0:
             deficits.append(np.zeros_like(wsp_base))
 
-        if self.method == "linear":
+        if (self.method == "linear") | (self.method == "niayifar"):
             wsp_out = wsp_base - np.sum(deficits, axis=0)
         elif self.method == "quadratic":
             wsp_out = wsp_base - np.sqrt(np.sum(np.array(deficits)**2, axis=0))

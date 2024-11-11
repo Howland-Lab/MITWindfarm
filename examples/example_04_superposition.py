@@ -7,6 +7,7 @@ from mitwindfarm import Superposition, RotorSolution, GaussianWakeModel, Uniform
 
 superposition_methods = {
     "Linear": Superposition.Linear(),
+    "Niayifar":Superposition.Niayifar(),
     "Quadratic": Superposition.Quadratic(),
     "Dominant": Superposition.Dominant(),
 }
@@ -52,5 +53,6 @@ if __name__ == "__main__":
             ax.plot(__x, wake.centerline(__x), ":r", lw=0.5)
 
         ax.set_title(label)
-
+    fig.subplots_adjust(hspace=0.5)
+        
     plt.savefig(FIGDIR / "example_04_superposition.png", dpi=300, bbox_inches="tight")

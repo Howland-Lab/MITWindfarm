@@ -137,6 +137,23 @@ class GaussianWake(Wake):
         )
 
         return gaussian_ * du
+    
+    def niayifar_deficit(self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0) -> ArrayLike:
+        """
+        Solves Eq. C1 where the wake deficit is defined relative to the
+        incident rotor wind speed following Niayifar (2016) Energies.
+        """
+        x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
+        d = self._wake_diameter(x)
+        yc = self.centerline(x_glob) - self.y
+        du = 0.5 * (self.rotor_sol.REWS - self.rotor_sol.u4) / d**2 * (1 + erf(x / (np.sqrt(2) / 2)))
+        gaussian_ = (
+            1
+            / (8 * self.sigma**2)
+            * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
+        )
+       
+        return gaussian_ * du
 
     def wake_added_turbulence(
         self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0
