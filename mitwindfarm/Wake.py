@@ -47,6 +47,7 @@ class GaussianWake(Wake):
         rotor_sol: "RotorSolution",
         sigma: float = 0.25,
         kw: float = 0.07,
+        x_nw: float = 1,
         TIamb: float = None,
         xmax: float = 100.0,
         dx: float = 0.05,
@@ -54,7 +55,7 @@ class GaussianWake(Wake):
     ):
         self.x, self.y, self.z = x, y, z
         self.rotor_sol = rotor_sol
-        self.sigma, self.kw = sigma, kw
+        self.sigma, self.kw, self.x_nw = sigma, kw, x_nw
         self.WATI_sigma_multiplier = WATI_sigma_multiplier
         self.TIamb = TIamb or 0.0
 
@@ -111,7 +112,7 @@ class GaussianWake(Wake):
         """
         Solves the normalized far-wake diameter (between C1 and C2)
         """
-        return 1 + self.kw * np.log(1 + np.exp(2 * (x - 1)))
+        return 1 + self.kw * np.log(1 + np.exp(2 * (x - self.x_nw)))
 
     def _du(self, x: ArrayLike, wake_diameter: Optional[float] = None) -> ArrayLike:
         """
@@ -201,10 +202,11 @@ class GaussianWake(Wake):
 
 class GaussianWakeModel(WakeModel):
     def __init__(
-        self, sigma=0.25, kw=0.07, WATI_sigma_multiplier=1.0, xmax: float = 100.0
+        self, sigma=0.25, kw=0.07, x_nw = 1, WATI_sigma_multiplier=1.0, xmax: float = 100.0
     ):
         self.sigma = sigma
         self.kw = kw
+        self.x_nw = x_nw
         self.xmax = xmax
         self.WATI_sigma_multiplier = WATI_sigma_multiplier
 
@@ -218,6 +220,7 @@ class GaussianWakeModel(WakeModel):
             rotor_sol,
             sigma=self.sigma,
             kw=self.kw,
+            x_nw=self.x_nw,
             TIamb=TIamb,
             xmax=self.xmax,
             WATI_sigma_multiplier=self.WATI_sigma_multiplier,
