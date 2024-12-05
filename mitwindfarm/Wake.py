@@ -214,7 +214,7 @@ class GaussianWakeModel(WakeModel):
         self, x, y, z, rotor_sol: "RotorSolution", TIamb: float = None
     ) -> GaussianWake:
         
-        x0 = rotor_sol.extra.x0 if rotor_sol.extra.x0 < np.inf else self.x0
+        x0 = rotor_sol.extra.x0[0] if rotor_sol.extra.x0[0] < np.inf else self.x0
         return GaussianWake(
             x,
             y,
