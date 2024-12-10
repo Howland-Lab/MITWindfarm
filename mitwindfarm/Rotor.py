@@ -113,6 +113,10 @@ class AD(Rotor):
         # sample windfield and calculate rotor effective wind speed
         Us = windfield.wsp(xs_glob, ys_glob, zs_glob)
         
+        x = x * np.array([1])
+        y = y * np.array([1])
+        z = z * np.array([1])
+
         REWS = self.rotor_grid.average(Us)
         RETI = windfield.RETI(x, y, z)
 
@@ -174,6 +178,10 @@ class UnifiedAD(Rotor):
 
         # sample windfield and calculate rotor effective wind speed
         Us = windfield.wsp(xs_glob, ys_glob, zs_glob)
+
+        x = x * np.array([1])
+        y = y * np.array([1])
+        z = z * np.array([1])
 
         REWS = self.rotor_grid.average(Us)
         RETI = windfield.RETI(x, y, z)
@@ -238,6 +246,10 @@ class BEM(Rotor):
         ys_glob = self.ygrid_loc + y
         zs_glob = self.zgrid_loc + z
         Us = windfield.wsp(xs_glob, ys_glob, zs_glob)
+
+        x = x * np.array([1])
+        y = y * np.array([1])
+        z = z * np.array([1])
 
         REWS = self._model.geometry.rotor_average(self._model.geometry.annulus_average(Us))
         RETI = windfield.RETI(x, y, z)
