@@ -209,12 +209,12 @@ class Superimposed(Windfield):
 
         return wsp_out
 
-    def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+    def RETI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         TI_base = self.base_windfield.TI(x, y, z)
 
         max_WATI = np.zeros_like(TI_base)
         for wake in self.wakes:
-            max_WATI = np.maximum(wake.wake_added_turbulence(x, y, z), max_WATI)
+            max_WATI = np.maximum(wake.REWATI(x, y, z), max_WATI)
 
         TI_out = np.sqrt(TI_base**2 + max_WATI**2)
 
