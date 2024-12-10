@@ -112,10 +112,9 @@ class AD(Rotor):
 
         # sample windfield and calculate rotor effective wind speed
         Us = windfield.wsp(xs_glob, ys_glob, zs_glob)
-        TIs = windfield.TI(xs_glob, ys_glob, zs_glob)
         
         REWS = self.rotor_grid.average(Us)
-        RETI = np.sqrt(self.rotor_grid.average(TIs**2))
+        RETI = windfield.RETI(x, y, z)
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
@@ -175,10 +174,9 @@ class UnifiedAD(Rotor):
 
         # sample windfield and calculate rotor effective wind speed
         Us = windfield.wsp(xs_glob, ys_glob, zs_glob)
-        TIs = windfield.TI(xs_glob, ys_glob, zs_glob)
 
         REWS = self.rotor_grid.average(Us)
-        RETI = np.sqrt(self.rotor_grid.average(TIs**2))
+        RETI = windfield.RETI(x, y, z)
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
@@ -240,10 +238,9 @@ class BEM(Rotor):
         ys_glob = self.ygrid_loc + y
         zs_glob = self.zgrid_loc + z
         Us = windfield.wsp(xs_glob, ys_glob, zs_glob)
-        TIs = windfield.TI(xs_glob, ys_glob, zs_glob)
 
         REWS = self._model.geometry.rotor_average(self._model.geometry.annulus_average(Us))
-        RETI = np.sqrt(self._model.geometry.rotor_average(self._model.geometry.annulus_average(TIs**2)))
+        RETI = windfield.RETI(x, y, z)
 
         wdir = windfield.wdir(xs_glob, ys_glob, zs_glob)
         sol: BEMSolution = self._model(pitch, tsr, yaw, Us / REWS, wdir)
