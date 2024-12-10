@@ -208,6 +208,9 @@ class Superimposed(Windfield):
             raise NotImplementedError
 
         return wsp_out
+    
+    def TI(self, x, y, z):
+        pass
 
     def RETI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         TI_base = self.base_windfield.TI(x, y, z)

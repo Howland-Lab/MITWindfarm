@@ -22,7 +22,7 @@ class Wake(ABC):
         ...
 
     @abstractmethod
-    def wake_added_turbulence(
+    def REWATI(
         self, x: ArrayLike, y: ArrayLike, z: ArrayLike
     ) -> ArrayLike:
         ...
