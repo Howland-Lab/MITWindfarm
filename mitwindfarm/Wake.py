@@ -155,7 +155,7 @@ class GaussianWake(Wake):
        
         return gaussian_ * du
 
-    def wake_added_turbulence(
+    def REWATI(
         self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0
     ) -> ArrayLike:
         """
@@ -163,23 +163,25 @@ class GaussianWake(Wake):
         points in space. Laterally smeared with the gaussian twice as wide as
         the wake deficit model. as recommended by Niayifar and Porte-Agel 2016
         """
-        x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
-        d = self._wake_diameter(x)
-        yc = self.centerline(x_glob) - self.y
+        x = x_glob - self.x
+        z = z_glob - self.z
+        yc = self.centerline(x_glob)
+
+        R = 2 * (self.sigma * self._wake_diameter(x))
+        r = 0.5
+        d = np.sqrt((y_glob - yc) ** 2 + z ** 2)
+
         WATI = self.centerline_wake_added_turb(x)
 
-        _gaussian = (
-            1
-            / (8 * (self.WATI_sigma_multiplier * self.sigma) ** 2)
-            * np.exp(
-                -(
-                    ((y - yc) ** 2 + z**2)
-                    / (2 * (self.WATI_sigma_multiplier * self.sigma) ** 2 * d**2)
-                )
+        with np.errstate(all = "ignore"):
+            wake_overlap = (
+                (r ** 2) * np.arccos((d ** 2 + r ** 2 - R ** 2) / (2 * d * r)) + 
+                (R ** 2) * np.arccos((d ** 2 + R ** 2 - r ** 2) / (2 * d * R)) -
+                0.5 * np.sqrt((-d + r + R)*(d + r - R)*(d - r + R)*(d + r + R))
             )
-        )
-
-        return _gaussian * np.nan_to_num(WATI)
+            wake_overlap[d > r + R] = 0
+            wake_overlap[d < R - r] = np.pi * r ** 2
+            return (wake_overlap * 4 * np.nan_to_num(WATI)) / np.pi
 
     def line_deficit(self, x: np.array, y: np.array):
         """
