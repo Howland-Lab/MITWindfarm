@@ -47,6 +47,7 @@ class GaussianWake(Wake):
         rotor_sol: "RotorSolution",
         sigma: float = 0.25,
         kw: float = 0.07,
+        x0: float = 1,
         TIamb: float = None,
         xmax: float = 100.0,
         dx: float = 0.05,
@@ -54,7 +55,7 @@ class GaussianWake(Wake):
     ):
         self.x, self.y, self.z = x, y, z
         self.rotor_sol = rotor_sol
-        self.sigma, self.kw = sigma, kw
+        self.sigma, self.kw, self.x0 = sigma, kw, x0
         self.WATI_sigma_multiplier = WATI_sigma_multiplier
         self.TIamb = TIamb or 0.0
 
@@ -62,7 +63,7 @@ class GaussianWake(Wake):
         self.x_centerline, self.y_centerline = self._centerline(xmax, dx)
 
     def __repr__(self):
-        return f"GaussianWake(x={self.x}, y={self.y}, z={self.z}, sigma={self.sigma}, kw={self.kw})"
+        return f"GaussianWake(x={self.x}, y={self.y}, z={self.z}, sigma={self.sigma}, kw={self.kw}, x0 = {self.x0})"
 
     def _centerline(self, xmax: float, dx: float = 0.05) -> ArrayLike:
         """
@@ -111,7 +112,7 @@ class GaussianWake(Wake):
         """
         Solves the normalized far-wake diameter (between C1 and C2)
         """
-        return 1 + self.kw * np.log(1 + np.exp(2 * (x - 1)))
+        return 1 + self.kw * np.log(1 + np.exp(2 * (x - self.x0)))
 
     def _du(self, x: ArrayLike, wake_diameter: Optional[float] = None) -> ArrayLike:
         """
@@ -201,10 +202,11 @@ class GaussianWake(Wake):
 
 class GaussianWakeModel(WakeModel):
     def __init__(
-        self, sigma=0.25, kw=0.07, WATI_sigma_multiplier=1.0, xmax: float = 100.0
+        self, sigma=0.25, kw=0.07, x0 = 1, WATI_sigma_multiplier=1.0, xmax: float = 100.0
     ):
         self.sigma = sigma
         self.kw = kw
+        self.x0 = x0
         self.xmax = xmax
         self.WATI_sigma_multiplier = WATI_sigma_multiplier
 
@@ -218,6 +220,7 @@ class GaussianWakeModel(WakeModel):
             rotor_sol,
             sigma=self.sigma,
             kw=self.kw,
+            x0=self.x0,
             TIamb=TIamb,
             xmax=self.xmax,
             WATI_sigma_multiplier=self.WATI_sigma_multiplier,
@@ -242,6 +245,7 @@ class VariableKwGaussianWakeModel(WakeModel):
         b: float,
         c: float,
         sigma: float = 1 / np.sqrt(8),
+        x0 : float = 1,
         WATI_sigma_multiplier=1.0,
         xmax: float = 100.0,
     ):
@@ -249,6 +253,7 @@ class VariableKwGaussianWakeModel(WakeModel):
         self.b = b
         self.c = c
         self.sigma = sigma
+        self.x0 = x0
         self.xmax = xmax
         self.WATI_sigma_multiplier = WATI_sigma_multiplier
 
@@ -263,6 +268,7 @@ class VariableKwGaussianWakeModel(WakeModel):
             rotor_sol,
             sigma=self.sigma,
             kw=kw,
+            x0 = self.x0,
             TIamb=TIamb,
             xmax=self.xmax,
             WATI_sigma_multiplier=self.WATI_sigma_multiplier,
