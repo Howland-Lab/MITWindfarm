@@ -131,6 +131,76 @@ class AD(Rotor):
             extra=sol,
         )
 
+class CosineTurbine(Rotor):
+    """
+    Axial Distribution rotor model.
+
+    Methods:
+    - __call__(Ctprime, yaw): Calculate the rotor solution for given Ctprime and yaw inputs.
+    """
+
+    def __init__(self, rotor_grid: RotorGrid = None, cosine_exponent=1, cp_curve=None, ct_curve=None, ws_curve=None):
+        """
+        Initialize the AD rotor model using the Heck momentum model.
+        """
+        self._model = Heck()
+        if rotor_grid is None:
+            self.rotor_grid = Area()
+        else:
+            self.rotor_grid = rotor_grid
+        self.cosine_exponent = cosine_exponent
+        self.cp_curve = cp_curve
+        self.ct_curve = ct_curve
+        self.ws_curve = ws_curve
+
+    def __call__(self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw) -> RotorSolution:
+        """
+        Calculate the rotor solution for given Ctprime and yaw inputs.
+
+        Parameters:
+        - Ctprime (float): Thrust coefficient including the effect of yaw.
+        - yaw (float): Yaw angle of the rotor.
+
+        Returns:
+        RotorSolution: The calculated rotor solution.
+        """
+        # Get the points over rotor to be sampled in windfield
+        xs_loc, ys_loc, zs_loc = self.rotor_grid.grid_points()
+        xs_glob, ys_glob, zs_glob = xs_loc + x, ys_loc + y, zs_loc + z
+
+        # sample windfield and calculate rotor effective wind speed
+        Us = windfield.wsp(xs_glob, ys_glob, zs_glob)
+        TIs = windfield.TI(xs_glob, ys_glob, zs_glob)
+        
+        REWS = self.rotor_grid.average(Us)
+        RETI = np.sqrt(self.rotor_grid.average(TIs**2))
+
+        # Look up Cp and Ct from curves
+        Cp_y0 = np.interp(REWS, self.ws_curve, self.cp_curve)
+        Ct_y0 = np.interp(REWS, self.ws_curve, self.ct_curve)
+
+        Ctprime = (4 * Ct_y0) / ((1 + np.sqrt(1 - Ct_y0))**2)
+
+        Ct = Ct_y0 * (np.cos(yaw)**2)
+        Cp = Cp_y0 * (np.cos(yaw)**self.cosine_exponent)
+
+        # Calculate rotor solution (independent of wind field in this model)
+        momentum_sol: MomentumSolution = self._model(Ctprime, yaw)
+
+        # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
+        return RotorSolution(
+            yaw,
+            Cp * REWS**3,
+            Ct,
+            Ctprime,
+            momentum_sol.an * REWS,
+            momentum_sol.u4 * REWS,
+            momentum_sol.v4 * REWS,
+            REWS,
+            TI=RETI,
+            extra=momentum_sol,
+        )
+
 
 class UnifiedAD(Rotor):
     """
