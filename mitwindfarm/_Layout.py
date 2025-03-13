@@ -40,7 +40,7 @@ class Layout:
         center: Literal["origin", "centroid"] = "centroid",
     ) -> "Layout":
         """
-        Rotate the wind farm layout clockwise about origin or centroid by an angle (in radians).
+        Rotate the wind farm layout clockwise about origin or centroid by an angle in degrees or radians.
 
         Parameters:
         - angle: The angle of rotation.
@@ -135,16 +135,18 @@ class GridLayout(Layout):
         self.Sy = Sy
         self.Nx = Nx
         self.Ny = Ny
+        
+        if offset < 0 or offset > 1:
+            raise ValueError(f"offset ({offset} should be between 0 and 1.)")
         self.offset = offset
 
         x = Sx * np.arange(0, Nx)
         y = Sy * np.arange(0, Ny)
         xmesh, ymesh = np.meshgrid(x, y)
         if shape == "trap":
-            y_offset = 0.5 * Sy * offset * np.arange(0, Nx)
-
+            y_offset = Sy * offset * np.arange(0, Nx)
         elif shape == "stag":
-            y_offset = 0.5 * Sy * offset * np.array([x % 2 for x in range(Nx)])
+            y_offset = Sy * offset * np.array([x % 2 for x in range(Nx)])
         else:
             raise ValueError(f"shape {shape} not defined.")
         ymesh += y_offset
