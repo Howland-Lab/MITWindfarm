@@ -144,9 +144,9 @@ class GridLayout(Layout):
         y = Sy * np.arange(0, Ny)
         xmesh, ymesh = np.meshgrid(x, y)
         if shape == "trap":
-            y_offset = Sy * offset * np.arange(0, Nx)
+            y_offset = 0.5 * Sy * offset * np.arange(0, Nx)
         elif shape == "stag":
-            y_offset = Sy * offset * np.array([x % 2 for x in range(Nx)])
+            y_offset = 0.5 * Sy * offset * np.array([x % 2 for x in range(Nx)])
         else:
             raise ValueError(f"shape {shape} not defined.")
         ymesh += y_offset
