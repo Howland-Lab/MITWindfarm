@@ -189,7 +189,7 @@ class Superimposed(Windfield):
         self,
         base_windfield: Windfield,
         wakes: list[Wake],
-        method=Literal["linear", "quadratic", "dominant"],
+        method=Literal["linear", "quadratic", "dominant", "niayifar"],
     ):
         self.base_windfield = base_windfield
         self.wakes = wakes

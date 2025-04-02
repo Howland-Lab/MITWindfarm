@@ -7,7 +7,7 @@ from ._Layout import Layout
 from .Rotor import Rotor, AD, RotorSolution
 from .Windfield import Windfield, Uniform
 from .Wake import WakeModel, Wake, GaussianWakeModel
-from .Superposition import Superposition, Linear
+from .Superposition import Superposition, Niayifar
 
 
 @dataclass
@@ -69,7 +69,7 @@ class Windfarm:
     ):
         self.rotor_model = AD() if rotor_model is None else rotor_model
         self.wake_model = GaussianWakeModel() if wake_model is None else wake_model
-        self.superposition = Linear() if superposition is None else superposition
+        self.superposition = Niayifar() if superposition is None else superposition
         self.base_windfield = Uniform(TIamb=TIamb) if base_windfield is None else base_windfield
         self.TIamb = TIamb
 
