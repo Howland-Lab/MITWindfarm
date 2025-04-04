@@ -1,19 +1,23 @@
 """
-Windfield Abstraction and Uniform Windfield Implementation
+Windfield Abstraction and Concrete Windfield Implementation
 
 This module defines an abstract base class, `Windfield`, representing a generic wind field,
-and a concrete implementation, `Uniform`, representing a uniform wind field.
+and several concrete implementations, representing a various wind fields.
 
 Classes:
 - Windfield: Abstract base class for wind field models.
 - Uniform: Concrete implementation of a uniform wind field.
+- PowerLaw: Concrete implementation of a power law wind field.
+- Superimposed:
+
+Note that Superimposed is used internally, rather than as a user input.
 
 Usage Example:
     wind_field = Uniform()  # Create a uniform wind field instance
     wind_speed = wind_field.wsp(x, y, z)  # Get wind speed at specified coordinates
     wind_direction = wind_field.wdir(x, y, z)  # Get wind direction at specified coordinates
 
-Note: The methods wsp and wdir should be implemented in subclasses according to the specific wind field model.
+Note: The methods wsp, TI, and wdir should be implemented in subclasses according to the specific wind field model.
 """
 
 from abc import ABC, abstractmethod
@@ -29,7 +33,7 @@ class Windfield(ABC):
     """
     Abstract base class for wind field models.
 
-    Subclasses must implement the wsp and wdir methods.
+    Subclasses must implement the wsp, TI, and wdir methods.
     """
 
     @abstractmethod
@@ -58,7 +62,7 @@ class Windfield(ABC):
         - z: z-coordinates.
 
         Returns:
-        ArrayLike: Wind speed at the specified coordinates.
+        ArrayLike: Turbulence intensity at the specified coordinates.
         """
         pass
 
@@ -83,7 +87,8 @@ class Uniform(Windfield):
     Concrete implementation of a uniform wind field.
 
     Methods:
-    - wsp(x, y, z): Returns an array of ones with the same shape as input coordinates.
+    - wsp(x, y, z): Returns an array of U0 with the same shape as input coordinates.
+    - TI(x, y, z): Returns an array of TIamb with the same shape as input coordinates
     - wdir(x, y, z): Returns an array of zeros with the same shape as input coordinates.
     """
 
@@ -93,7 +98,7 @@ class Uniform(Windfield):
 
     def wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """
-        Returns an array of ones with the same shape as input coordinates.
+        Returns an array of value U0 with the same shape as input coordinates.
 
         Parameters:
         - x: x-coordinates.
@@ -101,7 +106,7 @@ class Uniform(Windfield):
         - z: z-coordinates.
 
         Returns:
-        ArrayLike: Array of ones with the same shape as input coordinates.
+        ArrayLike: Array of value U0 with the same shape as input coordinates.
         """
         return self.U0 * np.ones_like(x)
 
@@ -115,7 +120,7 @@ class Uniform(Windfield):
         - z: z-coordinates.
 
         Returns:
-        ArrayLike: Wind speed at the specified coordinates.
+        ArrayLike: Turbulence intensity at the specified coordinates.
         """
         return self.TIamb * np.ones_like(x)
 
@@ -135,6 +140,15 @@ class Uniform(Windfield):
 
 
 class PowerLaw(Windfield):
+    """
+    Concrete implementation of a power law wind field.
+
+    Methods:
+    - shear(y): Returns the wind speed due to shear
+    - wsp(x, y, z): Returns wind speed at a given height z
+    - TI(x, y, z): Returns the input turbulence intensity TIamb with the same shape as input coordinates.
+    - wdir(x, y, z): Returns an array of zeros with the same shape as input coordinates.
+    """
     def __init__(self, Uref: float, zref: float, exp: float, TIamb: float = 0.0):
         self.Uref = Uref
         self.zref = zref
@@ -162,11 +176,20 @@ class PowerLaw(Windfield):
 
 
 class Superimposed(Windfield):
+    """
+    Concrete implementation of a superimposed wind field.
+
+    Methods:
+    - add_wake(base_windfield, wakes, method): Add provided wakes to the base windfield.
+    - wsp(x, y, z): Returns wind speed at a given height z
+    - TI(x, y, z): Returns the input turbulence intensity TIamb with the same shape as input coordinates.
+    - wdir(x, y, z): Returns an array of zeros with the same shape as input coordinates.
+    """
     def __init__(
         self,
         base_windfield: Windfield,
         wakes: list[Wake],
-        method=Literal["linear", "quadratic", "dominant"],
+        method=Literal["linear", "quadratic", "dominant", "niayifar"],
     ):
         self.base_windfield = base_windfield
         self.wakes = wakes
@@ -177,7 +200,7 @@ class Superimposed(Windfield):
 
     def wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """
-        Returns an array of ones with the same shape as input coordinates.
+        Returns an array of wind speed based on the windfield's wakes.
 
         Parameters:
         - x: x-coordinates.
@@ -185,7 +208,7 @@ class Superimposed(Windfield):
         - z: z-coordinates.
 
         Returns:
-        ArrayLike: Array of ones with the same shape as input coordinates.
+        ArrayLike: Array of ind speed based on the windfield's wakes with the same shape as input coordinates.
         """    
         wsp_base = self.base_windfield.wsp(x, y, z)
         deficits = []
@@ -210,6 +233,9 @@ class Superimposed(Windfield):
         return wsp_out
 
     def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Returns the turbulence intensity of the wake with the most added turbulence. 
+        """
         TI_base = self.base_windfield.TI(x, y, z)
 
         max_WATI = np.zeros_like(TI_base)
