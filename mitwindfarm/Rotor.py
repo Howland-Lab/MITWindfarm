@@ -338,7 +338,7 @@ class CosineRotor(Rotor):
             Cp * REWS**3,
             Ct * REWS**2,
             np.nan,
-            a,
+            a * REWS,
             u4 * REWS,
             v4 * REWS,
             REWS,
