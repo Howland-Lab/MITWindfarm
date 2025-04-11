@@ -335,8 +335,8 @@ class CosineRotor(Rotor):
 
         return RotorSolution(
             yaw,
-            Cp,
-            Ct,
+            Cp * REWS**3,
+            Ct * REWS**2,
             np.nan,
             a,
             u4 * REWS,
