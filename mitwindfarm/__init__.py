@@ -1,5 +1,5 @@
 from ._Layout import GridLayout, Square, Layout
-from .Rotor import RotorSolution, AD, UnifiedAD, BEM
+from .Rotor import RotorSolution, AD, UnifiedAD, BEM, CosineRotor
 from .RotorGrid import Point, Line, Area
 from .Superposition import Linear, Niayifar, Quadratic, Dominant
 from .Wake import WakeModel, GaussianWakeModel, GaussianWake, VariableKwGaussianWakeModel

@@ -25,6 +25,7 @@ Note: Make sure to replace '...' with the actual parameters in RotorDefinition.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
+from numpy.typing import ArrayLike
 
 import numpy as np
 from UnifiedMomentumModel.Momentum import Heck, UnifiedMomentum, MomentumSolution
@@ -258,4 +259,89 @@ class BEM(Rotor):
             REWS,
             TI=RETI,
             extra=sol,
+        )
+    
+class CosineRotor(Rotor):
+    def __init__(self, 
+                 windspeeds_over_urated: ArrayLike, 
+                 Cts: ArrayLike, 
+                 Cps: ArrayLike, 
+                 Pp: float, 
+                 Tp: float, 
+                 urated_over_freestream: float,
+                 rotor_grid: RotorGrid = None):
+        """
+        Initialize the CosineRotor model with given wind speeds and coefficients.
+
+        Parameters:
+        - windspeeds_over_urated (array): Array of wind speeds normalized by rated wind speed.
+        - Cts (array): Array of thrust coefficients.
+        - Cps (array): Array of power coefficients.
+        - Pp (float): Power cosine exponent.
+        - Tp (float): Thrust cosine exponent.
+        - urated_over_freestream (float): Rated wind speed normalized by freestream wind speed.
+        """
+
+        self.windspeeds_over_urated = windspeeds_over_urated
+        self.Cts = Cts
+        self.Cps = Cps
+        self.Pp = Pp
+        self.Tp = Tp
+        self.urated_over_freestream = urated_over_freestream
+        self.windspeeds_over_freestream = windspeeds_over_urated * urated_over_freestream
+        if rotor_grid is None:
+            self.rotor_grid = Point()
+        else:
+            self.rotor_grid = rotor_grid
+
+    def compute_initial_wake_velocities(self, Ct: float, yaw: float) -> float:
+        a = 0.5 * (1 - np.sqrt(1 - Ct))
+        u4 = np.sqrt(1 - Ct)
+        v4 = - (1/4) * Ct * np.sin(yaw)
+        return a, u4, v4
+
+    def __call__(self, x: float, y: float, z: float, windfield: Windfield, yaw) -> RotorSolution:
+        """
+        Calculate the rotor solution.
+
+        Returns:
+        RotorSolution: The calculated rotor solution.
+        """
+
+       # Get the points over rotor to be sampled in windfield
+        xs_loc, ys_loc, zs_loc = self.rotor_grid.grid_points()
+        xs_glob, ys_glob, zs_glob = xs_loc + x, ys_loc + y, zs_loc + z
+
+        # sample windfield and calculate rotor effective wind speed
+        Us = windfield.wsp(xs_glob, ys_glob, zs_glob)
+        TIs = windfield.TI(xs_glob, ys_glob, zs_glob)
+
+        REWS = self.rotor_grid.average(Us)
+        RETI = np.sqrt(self.rotor_grid.average(TIs**2))
+
+
+        # Interpolate thrust and power coefficients based on wind speed
+        Ct_y0 = np.interp(REWS, self.windspeeds_over_freestream, self.Cts)
+        Cp_y0 = np.interp(REWS, self.windspeeds_over_freestream, self.Cps)
+
+        # Calculate thrust coefficient with cosine correction
+        Ct = Ct_y0 * np.cos(np.radians(yaw))**self.Tp
+
+        # Calculate power coefficient with cosine correction
+        Cp = Cp_y0 * np.cos(np.radians(yaw))**self.Pp
+
+        # evaluate classical induction model
+        a, u4, v4 = self.compute_initial_wake_velocities(Ct, yaw)
+
+        return RotorSolution(
+            yaw,
+            Cp,
+            Ct,
+            np.nan,
+            a,
+            u4 * REWS,
+            v4 * REWS,
+            REWS,
+            TI=RETI,
+            extra=None
         )
