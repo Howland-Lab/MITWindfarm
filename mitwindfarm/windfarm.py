@@ -127,8 +127,9 @@ class CosineWindfarm:
             rotor_solutions[i].idx = i
             wakes[i] = self.wake_model(x, y, z, rotor_solutions[i], TIamb=self.TIamb)
             windfield.add_wake(wakes[i])
+            setpoints = [[yaw] for yaw in yaw_setpoints]
 
-        return WindfarmSolution(layout, yaw_setpoints, rotor_solutions, wakes, windfield)
+        return WindfarmSolution(layout, setpoints, rotor_solutions, wakes, windfield)
 
     def from_partial(self, partial: PartialWindfarmSolution) -> WindfarmSolution:
         N = len(partial.layout)
