@@ -7,6 +7,7 @@ from ._Layout import Layout
 from .Rotor import Rotor, AD, RotorSolution
 from .Windfield import Windfield, Uniform
 from .Wake import WakeModel, Wake, GaussianWakeModel
+from .CurledWake import CurledWakeWindfield
 from .Superposition import Superposition, Niayifar
 
 
@@ -142,3 +143,56 @@ class CosineWindfarm:
 
     def from_dict(self, partial: dict) -> WindfarmSolution:
         return self.from_partial(PartialWindfarmSolution.from_dict(partial))
+
+
+class CurledWindfarm(Windfarm):
+    """
+    Curled Wake model wind farm solver. This solver needs a slightly different
+    __call__ method because there are no "wakes" or "wake superposition" in the
+    Curled Wake model. The wind farm is solved in a single step by numerically
+    integrating a parabolic PDE.
+
+    Follows the general framework of Martínez-Tossas et al. (2019, 2021).
+    """
+
+    def __init__(
+        self,
+        rotor_model: Optional[Rotor] = None,
+        base_windfield: Optional[Windfield] = None,
+        TIamb: float = None,
+        solver_kwargs: Optional[dict] = None,
+    ):
+        """
+        Initializes the CurledWindFarm. 
+        
+        Note that TIamb is unused. Instead, ensure that the `base_windfield` 
+        includes ambient turbulence. 
+        """
+        self.rotor_model = AD() if rotor_model is None else rotor_model
+        self.base_windfield = (
+            Uniform(TIamb=TIamb) if base_windfield is None else base_windfield
+        )
+        self.TIamb = TIamb
+        self.solver_kwargs = dict() if solver_kwargs is None else solver_kwargs
+
+    def __call__(
+        self, layout: Layout, setpoints: list[tuple[float, ...]]
+    ) -> WindfarmSolution:
+        """
+        Solves for the rotor solutions in the wind farm layout, marching
+        the CurledWakeWindfield to each rotor location as necessary.
+        """
+        # this function has to: 1) arrange rotors to march downstream, 2) initialize the CurledWakeWindfield, 3) solve, 4) aggregate results
+        N = layout.x.size
+        wakes = N * [None]  # this just remains as [None, ...] in CWM
+        rotor_solutions = N * [None]
+
+        windfield = CurledWakeWindfield(self.base_windfield, **self.solver_kwargs)
+
+        for i, (x, y, z) in layout.iter_downstream():
+            windfield.march_to(x=x, y=y, z=z)  # march to the next rotor location, extrapolating where necessary
+            rotor_solutions[i] = self.rotor_model(x, y, z, windfield, *setpoints[i])
+            rotor_solutions[i].idx = i
+            windfield.stamp_ic(rotor_solutions[i], x, y, z)  # stamp the rotor solution into the windfield
+
+        return WindfarmSolution(layout, setpoints, rotor_solutions, wakes, windfield)
