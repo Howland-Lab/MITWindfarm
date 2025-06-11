@@ -968,51 +968,5 @@ def get_heaviside(x, yax, turbines, default_x0=1):
     return 1 - ret
 
 
-def example():
-    import matplotlib.pyplot as plt
-    from mitwindfarm import Uniform, Layout
-    from mitwindfarm.Plotting import plot_windfarm
-    from mitwindfarm.windfarm import CurledWindfarm
-    from mitwindfarm.Rotor import UnifiedAD_TI
-    import time
-
-    time_st = time.time()
-    base_windfield = Uniform(TIamb=0.05)  # 5% ambient TI
-    wf = CurledWindfarm(
-        rotor_model=UnifiedAD_TI(),
-        base_windfield=base_windfield,
-        solver_kwargs=dict(
-            dy=1 / 10,
-            dz=1 / 10,
-            integrator="scipy_rk23",  # see
-            k_model="k-l",  # alternatives: "const", "2021"
-            verbose=False, 
-        ),
-    )
-    layout = Layout([0, 5, 10], [0, 0.4, 0.8], [0, 0, 0])
-    setpoints = [
-        (2, np.radians(30)),
-        (2, np.radians(15)),
-        (2, 0),
-    ]  #  Example setpoints for two turbines
-    sol = wf(layout, setpoints)
-    print(f"Windfarm solution in {time.time() - time_st:.2f} seconds")
-
-    fig, axs = plt.subplots(
-        figsize=(4, 4), nrows=2, ncols=1, sharex=True, height_ratios=(1, 2)
-    )
-    plot_windfarm(sol, ax=axs[0], pad=2, axis=True)
-    axs[0].set_xlabel("$x/D$")
-    axs[0].set_ylabel("$y/D$")
-    # plot power per turbine
-    axs[1].bar(layout.x, [r.Cp for r in sol.rotors], width=2)
-    axs[1].set_ylabel("$C_P$")
-    axs[1].set_xticks(layout.x)
-    axs[1].set_xticklabels(np.arange(len(layout.x)) + 1)
-    axs[1].set_xlabel("Turbine row")
-
-    plt.savefig("./test_twoturbine_curl.png", bbox_inches="tight")
-
-
 if __name__ == "__main__":
-    example()
+    pass
