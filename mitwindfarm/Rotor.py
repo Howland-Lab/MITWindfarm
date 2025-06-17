@@ -26,8 +26,10 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 from numpy.typing import ArrayLike
+from typing import Tuple
 
 import numpy as np
+from scipy.optimize import root
 from UnifiedMomentumModel.Momentum import Heck, UnifiedMomentum, MomentumSolution
 from MITRotor import BEM as _BEM
 from MITRotor import BEMSolution, RotorDefinition
@@ -428,7 +430,7 @@ class UnifiedMomentumTI_x0(UnifiedMomentum):
 
     def residual(
         self, x: np.ndarray, Ctprime: float, yaw: float, TI: float = 0
-    ):
+    ) -> Tuple[float, ...]:
         """
         Returns the residuals of the Unified Momentum Model for the fixed point
         iteration. The equations referred to in this function are from the
@@ -463,7 +465,7 @@ class UnifiedMomentumTI(UnifiedMomentum):
 
     def residual(
         self, x: np.ndarray, Ctprime: float, yaw: float, TI: float = 0
-    ):
+    ) -> Tuple[float, ...]:
         """
         Returns the residuals of the Unified Momentum Model for the fixed point
         iteration. The equations referred to in this function are from the
@@ -530,3 +532,175 @@ class UnifiedMomentumTI(UnifiedMomentum):
 
     def post_process(self, result, Ctprime, yaw, TI):
         return super().post_process(result, Ctprime, yaw)
+
+
+class UnifiedAD_veer(UnifiedAD):
+    """
+    Same as UnifiedAD but also accounts for a possible
+    dependence on veer and inflow TI. 
+    """
+
+    def __init__(self, rotor_grid=None, beta=0.1403, alpha=2.32):
+        """
+        Initialize the UnifiedAD rotor model with the given axial induction factor.
+
+        Parameters:
+        - beta (float): Axial induction factor (default is 0.1403).
+        """
+        super().__init__(rotor_grid=rotor_grid)
+        self._model = UnifiedMomentum_veer(beta=beta, alpha=alpha)
+
+    def __call__(
+        self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw
+    ) -> RotorSolution:
+        """
+        Calculate the rotor solution for given Ctprime and yaw inputs.
+
+        Parameters:
+        - Ctprime (float): Thrust coefficient including the effect of yaw.
+        - yaw (float): Yaw angle of the rotor.
+
+        Returns:
+        RotorSolution: The calculated rotor solution.
+        """
+
+        # Get the points over rotor to be sampled in windfield
+        xs_loc, ys_loc, zs_loc = self.rotor_grid.grid_points()
+        xs_glob, ys_glob, zs_glob = xs_loc + x, ys_loc + y, zs_loc + z
+
+        # sample windfield and calculate rotor effective wind speed
+        Us = windfield.wsp(xs_glob, ys_glob, zs_glob)
+        TIs = windfield.TI(xs_glob, ys_glob, zs_glob)
+
+        REWS = self.rotor_grid.average(Us)
+        RETI = np.sqrt(self.rotor_grid.average(TIs**2))
+
+        # compute veer; this sampling should be done in a vertical line at the rotor: 
+        zax = np.linspace(-0.5, 0.5) + z
+        xax = np.full_like(zax, x)
+        yax = np.full_like(zax, y)
+        veer = -np.mean(np.gradient(windfield.wdir(xax, yax, zax), zax))
+
+        sol = self._model(Ctprime, yaw, TI=RETI, veer=veer)
+
+        # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
+        return RotorSolution(
+            yaw,
+            sol.Cp[0] * REWS**3,
+            sol.Ct[0] * REWS**2,
+            sol.Ctprime,
+            sol.an[0] * REWS,
+            sol.u4[0] * REWS,
+            sol.v4[0] * REWS,
+            REWS,
+            TI=RETI,
+            extra=sol,
+        )
+    
+
+class UnifiedMomentum_veer(UnifiedMomentum):
+    """
+    Here, the influence of TI on x0 is decoupled from the
+    other near-wake equations.
+
+    `veer` is the veer rate in radians per length.
+    """
+
+    def __init__(
+        self, beta=0.1403, alpha=2.32, cached=True, v4_correction=1.0, **kwargs
+    ):
+        super().__init__(
+            beta=beta, cached=cached, v4_correction=v4_correction, **kwargs
+        )
+        self.alpha = alpha
+
+    def initial_guess(self, Ctprime, yaw, TI, veer):
+        return super().initial_guess(Ctprime, yaw)
+
+    def residual(
+        self,
+        x: np.ndarray,
+        Ctprime: float,
+        yaw: float,
+        TI: float = 0,
+        veer: float = 0,
+    ) -> Tuple[float, ...]:
+        """
+        Returns the residuals of the Unified Momentum Model for the fixed point
+        iteration. The equations referred to in this function are from the
+        associated paper.
+        """
+        return super().residual(x, Ctprime, yaw)  # TI and veer unused here
+
+    def post_process(self, result, Ctprime, yaw, TI, veer):
+        a, u4, v4, _x0, dp = result.x
+        x0 = x0_model(u4, a, veer=veer, TI=TI, alpha=self.alpha, beta=self.beta)
+
+        result.x = (a, u4, v4, x0, dp)  # correct x0
+        return super().post_process(result, Ctprime, yaw)
+
+
+def x0_model_scalar(u4, an, veer=0, TI=0, alpha=2.32, beta=0.1403):
+    """
+    Computes the near-wake length x0 considering veered
+    conditions using a skewed ellipse approximation.
+
+    Parameters
+    ----------
+    u4 : float or array-like
+    an : float or array-like
+    veer : float or array-like
+        Amount of veering in radians per length
+    TI : float or array-like
+        Turbulence intensity TI = sqrt(2k/3) / U
+    alpha : float
+        TI dependence parameter, default is 2.32 (Bastankhah and Porté-Agel, 2016)
+    beta : float
+        Shear layer growth parameter, default is 0.1403 (Liew et al. (2024))
+
+    Returns
+    -------
+    float or array-like
+        Near-wake length x0
+    """
+
+    def _func(_x):
+        c = _x * veer
+        return (
+            _x
+            * (beta * np.abs((1 - u4) / (1 + u4)) + alpha * TI * np.abs(2 / (1 + u4)))
+        ) - 0.5 * np.sqrt((1 - an) / (1 + u4)) * np.sqrt(
+            0.5 * (c**2 + 2 - np.sqrt(c**4 + 4 * c**2))
+        )
+
+    return root(_func, x0=1).x[0]
+
+
+def x0_model(u4, an, veer=0, TI=0, alpha=2.32, beta=0.1403):
+    """
+    Computes the near-wake length x0 considering veered
+    conditions using a skewed ellipse approximation.
+
+    Calls `x0_model_scalar` but vectorized.
+
+    Parameters
+    ----------
+    u4 : float or array-like
+    an : float or array-like
+    veer : float or array-like
+        Amount of veering in radians per length
+    TI : float or array-like
+        Turbulence intensity TI = sqrt(2k/3) / U
+    alpha : float
+        TI dependence parameter, default is 2.32 (Bastankhah and Porté-Agel, 2016)
+    beta : float
+        Shear layer growth parameter, default is 0.1403 (Liew et al. (2024))
+
+    Returns
+    -------
+    float or array-like
+        Near-wake length x0
+    """
+
+    f = np.vectorize(x0_model_scalar)
+    return f(u4, an, veer=veer, TI=TI, alpha=alpha, beta=beta)
