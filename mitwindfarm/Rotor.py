@@ -16,7 +16,7 @@ Data Classes:
 Usage Example:
     rotor_def = RotorDefinition(...)  # Define rotor parameters
     bem_rotor = BEM(rotor_def)         # Create a BEM rotor instance
-    solution = bem_rotor(pitch, tsr, yaw)  # Calculate rotor solution for given inputs
+    solution = bem_rotor(pitch, tsr, yaw, tilt)  # Calculate rotor solution for given inputs
     print(solution.Cp, solution.Ct, solution.Ctprime, solution.an, solution.u4, solution.v4)
 
 Note: Make sure to replace '...' with the actual parameters in RotorDefinition.
@@ -41,12 +41,14 @@ class RotorSolution:
     """
 
     yaw: float
+    tilt: float
     Cp: float
     Ct: float
     Ctprime: float
     an: float
     u4: float
     v4: float
+    w4: float
     REWS: float
     TI: float = None
     idx: int = None
@@ -79,7 +81,7 @@ class AD(Rotor):
     Axial Distribution rotor model.
 
     Methods:
-    - __call__(Ctprime, yaw): Calculate the rotor solution for given Ctprime and yaw inputs.
+    - __call__(Ctprime, yaw, tilt): Calculate the rotor solution for given Ctprime, yaw, and tilt inputs.
     """
 
     def __init__(self, rotor_grid: RotorGrid = None):
@@ -92,19 +94,20 @@ class AD(Rotor):
         else:
             self.rotor_grid = rotor_grid
 
-    def __call__(self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw) -> RotorSolution:
+    def __call__(self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw = 0, tilt = 0) -> RotorSolution:
         """
-        Calculate the rotor solution for given Ctprime and yaw inputs.
+        Calculate the rotor solution for given Ctprime, yaw, and tilt inputs.
 
         Parameters:
-        - Ctprime (float): Thrust coefficient including the effect of yaw.
+        - Ctprime (float): Thrust coefficient including the effect of yaw and tilt.
         - yaw (float): Yaw angle of the rotor.
+        - tilt (float): Tilt angle of the rotor
 
         Returns:
         RotorSolution: The calculated rotor solution.
         """
         # Calculate rotor solution (independent of wind field in this model)
-        sol: MomentumSolution = self._model(Ctprime, yaw)
+        sol: MomentumSolution = self._model(Ctprime, yaw = yaw, tilt = tilt)
 
         # Get the points over rotor to be sampled in windfield
         xs_loc, ys_loc, zs_loc = self.rotor_grid.grid_points()
@@ -120,12 +123,14 @@ class AD(Rotor):
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
             yaw,
+            tilt,
             sol.Cp * REWS**3,
             sol.Ct * REWS**2,
             sol.Ctprime,
             sol.an * REWS,
             sol.u4 * REWS,
             sol.v4 * REWS,
+            sol.w4 * REWS,
             REWS,
             TI=RETI,
             extra=sol,
@@ -140,7 +145,7 @@ class UnifiedAD(Rotor):
     - beta (float): Axial induction factor.
 
     Methods:
-    - __call__(Ctprime, yaw): Calculate the rotor solution for given Ctprime and yaw inputs.
+    - __call__(Ctprime, yaw tilt): Calculate the rotor solution for given Ctprime, yaw, and tilt inputs.
     """
 
     def __init__(self, rotor_grid: RotorGrid = None, beta=0.1403):
@@ -156,18 +161,19 @@ class UnifiedAD(Rotor):
             self.rotor_grid = rotor_grid
         self._model = UnifiedMomentum(beta=beta)
 
-    def __call__(self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw) -> RotorSolution:
+    def __call__(self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw = 0, tilt = 0) -> RotorSolution:
         """
-        Calculate the rotor solution for given Ctprime and yaw inputs.
+        Calculate the rotor solution for given Ctprime, yaw, and tilt inputs.
 
         Parameters:
-        - Ctprime (float): Thrust coefficient including the effect of yaw.
+        - Ctprime (float): Thrust coefficient including the effect of yaw and tilt.
         - yaw (float): Yaw angle of the rotor.
+        - tilt (float): Tilt angle of the rotor.
 
         Returns:
         RotorSolution: The calculated rotor solution.
         """
-        sol: MomentumSolution = self._model(Ctprime, yaw)
+        sol: MomentumSolution = self._model(Ctprime, yaw = yaw, tilt = tilt)
 
         # Get the points over rotor to be sampled in windfield
         xs_loc, ys_loc, zs_loc = self.rotor_grid.grid_points()
@@ -183,12 +189,14 @@ class UnifiedAD(Rotor):
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
             yaw,
+            tilt,
             sol.Cp[0] * REWS**3,
             sol.Ct[0] * REWS**2,
             sol.Ctprime,
             sol.an[0] * REWS,
             sol.u4[0] * REWS,
             sol.v4[0] * REWS,
+            sol.w4[0] * REWS,
             REWS,
             TI=RETI,
             extra=sol,
