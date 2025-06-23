@@ -26,6 +26,13 @@ from mitwindfarm.utils.integrate import (
 from mitwindfarm.utils.differentiate import second_der
 
 
+#  ██████ ██    ██ ██████  ██      ███████ ██████      ██     ██  █████  ██   ██ ███████
+# ██      ██    ██ ██   ██ ██      ██      ██   ██     ██     ██ ██   ██ ██  ██  ██
+# ██      ██    ██ ██████  ██      █████   ██   ██     ██  █  ██ ███████ █████   █████
+# ██      ██    ██ ██   ██ ██      ██      ██   ██     ██ ███ ██ ██   ██ ██  ██  ██
+#  ██████  ██████  ██   ██ ███████ ███████ ██████       ███ ███  ██   ██ ██   ██ ███████
+
+
 class CurledWakeWindfield(Windfield):
     """
     Windfield for the curled wake model. This wind field HAS a base windfield
@@ -54,7 +61,13 @@ class CurledWakeWindfield(Windfield):
         N_vortex: int = 10,
         sigma_vortex: float = 0.2,
         smooth_fact: float = 1,
+        u_model: str = "default",
+        v_model: Literal["analytical", "decay"] = "default",
+        w_model: Literal["analytical", "decay"] = "default",
         k_model: Literal["const", "k-l"] = "const",
+        u_kwargs: dict = None,
+        v_kwargs: dict = None,
+        w_kwargs: dict = None,
         k_kwargs: dict = None,
         ic_method: Literal["du", "fx"] = "du",
         clip_u: float = 0.1,
@@ -96,13 +109,6 @@ class CurledWakeWindfield(Windfield):
         self.N_vortex = N_vortex
         self.sigma_vortex = sigma_vortex
 
-        # The following will get initialized later in check_grid_init()
-        self.grid = None  # list of [x, y, z] axes
-        self.du = None  # solved du-field
-        self.dv = None  # solved dv-field
-        self.dw = None  # solved dw-field
-        self.dk = None  # solved k_wake field
-
         if "scipy" not in self.ivp_name:
             self.ivp_kwargs.setdefault("dt", self.dx)
 
@@ -116,17 +122,32 @@ class CurledWakeWindfield(Windfield):
         self.use_r4 = use_r4
         self.auto_expand = auto_expand
 
-        self.verbose = verbose
-
-        # Turbulence modeling
-        self.k_model = k_model  # turbulence model to use (default: "k-l")
-        self.k_kwargs = k_kwargs if k_kwargs is not None else {}
-        self.k_module = CurledTurbulenceModel.get_model(
-            self.k_model, curledwake=self, **self.k_kwargs
+        # ============ field evolution modules ============
+        u_kwargs = dict() if u_kwargs is None else u_kwargs
+        v_kwargs = dict() if v_kwargs is None else v_kwargs
+        w_kwargs = dict() if w_kwargs is None else w_kwargs
+        k_kwargs = dict() if k_kwargs is None else k_kwargs
+        # Initialize the modules for u, v, w, and k
+        self.modules = dict(
+            du=CurledUModel.get_model(u_model, curledwake=self, **u_kwargs),
+            dv=CurledVModel.get_model(v_model, curledwake=self, **v_kwargs),
+            dw=CurledWModel.get_model(w_model, curledwake=self, **w_kwargs),
+            dk=CurledTurbulenceModel.get_model(
+                k_model,
+                curledwake=self,
+                **k_kwargs,
+            ),
         )
+        self.fields_to_integrate = [k for k, v in self.modules.items() if v.march_field]
+        self.fields_other = [k for k, v in self.modules.items() if not v.march_field]
+
+        # The grid will get initialized later in check_grid_init()
+        self.grid = None  # list of [x, y, z] axes
 
         self.smooth_fact = smooth_fact  # smoothing factor for the IC stencil
         self.turbines = []
+
+        self.verbose = verbose
 
     def wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         self.march_to(x=x, y=y, z=z)  # check that the forward marching is sufficient
@@ -249,10 +270,6 @@ class CurledWakeWindfield(Windfield):
         if rotor.yaw == 0:
             return  # no additional dv, dw to stamp in for this turbine
 
-        # TODO: Put this in a separate module
-        # self.N_vortex = 10  # make this a parameter
-        # self.vortex_sigma = 0.2  # sigma/D, for de-singularization
-
         # r-axis: clip edges to prevent singularities
         r_i = np.linspace(-(D - self.dz) / 2, (D - self.dz) / 2, self.N_vortex)
         # NOTE: rotor.Ct differs from Shapiro et al. (2018) definition - includes cos^2(yaw)
@@ -353,22 +370,15 @@ class CurledWakeWindfield(Windfield):
 
     def _march(self, xmax) -> None:
         """
-        Forward marches delta_u and delta_k fields.
-        Can also expand to march delta_v and delta_w fields,
-        but for now these are constant in x (except when additional
-        yawed wakes are stamped in with initial conditions).
+        Forward marches the wake field solution up to `xmax`
 
         Returns
-        - None (updates grid and self.du, self.dv, self.dw in place)
+        - None (updates grid and self.du, self.dv, self.dw, self.dk in place)
         """
         if xmax <= np.max(self.grid[0]):
             return  # nothing to compute!
 
-        # for now, _v and _w (2D slices of dv, dw) do not evolve in space
-        _v = self.dv[-1, ...]  # last slice of dv
-        _w = self.dw[-1, ...]
-        y = self.grid[1]
-        z = self.grid[2]
+        y, z = self.grid[1:]
         ybnd, zbnd = (0, 0), (0, 0)  # initialize variables for bound checking
 
         def _step(x, _state):
@@ -382,62 +392,31 @@ class CurledWakeWindfield(Windfield):
             to reshape arrays to compute derivatives, then pack them back
             into a flattened array.
             """
-            if np.any(np.isnan(_state)):
-                raise IntegrationException(
-                    f"nan value encountered in state at x={x:.3f}",
-                )
-
-            # parse inputs from current state
-            _u, _k = self.k_module.unpack_inputs(_state)
-            _u = np.clip(_u, None, 0)  # no positive velocity deficits... for now
-
-            # ======== check state bounds for domain expansion ========
-            if self.auto_expand:
-                check_yz = []
-                check_yz.append(check_state_bounds(_u, thresh=1e-4))
-                check_yz.append(check_state_bounds(_k, thresh=1e-6))
-                if np.any([check_yz]):
-                    # if any of the checks fail, we need to expand the domain along those dimensions
-                    ybnd, zbnd = np.max(check_yz, axis=0)
-                    raise DomainExpansionRequest(
-                        f"Expanding domain at {x=:.2f}", expand_y=ybnd, expand_z=zbnd
-                    )
 
             # ========= assemble variables and fields =========
+            if np.any(np.isnan(_state)):
+                raise IntegrationException(f"nan value encountered at x={x:.3f}")
+            vars = self._unpack_inputs(x, _state)  # computes all of the deficit fields
+            if self.auto_expand: 
+                self._check_yz_bounds(x, vars)  # may raise DomainExpansionRequest
+
             # Full velocity fields for advection:
             wsp = self.base_windfield.wsp(x, y[:, None], z[None, :])
             wdir = self.base_windfield.wdir(x, y[:, None], z[None, :])
             # compute k_base: assume TI = sqrt(2/3 k)/U
             kb = (self.base_windfield.TI(x, y[:, None], z[None, :]) * wsp) ** 2 * 3 / 2
-            u = _u + wsp * np.cos(wdir)
-            v = _v + wsp * np.sin(wdir)
-            w = _w + 0
-            k = _k + kb
+            vars["u"] = vars["du"] + wsp * np.cos(wdir)
+            vars["v"] = vars["dv"] + wsp * np.sin(wdir)
+            vars["w"] = vars["dw"] + 0
+            vars["k"] = vars["dk"] + kb
 
-            if (self.clip_u > 0) and np.any(u < self.clip_u):
-                u = np.clip(u, self.clip_u, None)
+            if (self.clip_u > 0) and np.any(vars["u"] < self.clip_u):
+                vars["u"] = np.clip(vars["u"], self.clip_u, None)
 
-            self.k_module.update_wake_fields(u, v, w, k, _u, _v, _w, _k)
-            nu_T = self.k_module.nu_T(x)
+            self.shared_flow_data = vars  # store this in a global variable
+            return self._return_derivatives(x)
 
-            # ============== du/dx computation ==============
-            # gradient fields of \Delta u:
-            dudy = np.gradient(_u, y, axis=0)
-            dudz = np.gradient(_u, z, axis=1)
-            d2udy2 = second_der(_u, self.dy, axis=0)
-            d2udz2 = second_der(_u, self.dz, axis=1)
-            dudx = (-v * dudy - w * dudz + nu_T * (d2udy2 + d2udz2) + self.extra_fx) / u
-
-            self.extra_fx *= 0  # reset extra forces after they are used - TODO: remove
-
-            # ============== dk/dx computation ==============
-            dkdx = self.k_module.compute_dkdx()
-
-            ret = self.k_module.pack_outputs(dudx, dkdx)
-            return ret
-
-        # use last slice as initial condition, turbulence model may update IC
-        ic = self.k_module.update_ic(self.du[-1, ...])
+        ic = self._pack_inputs()  # pack the initial conditions from the modules
 
         try:
             x, ret = self.integrator(
@@ -447,15 +426,10 @@ class CurledWakeWindfield(Windfield):
             x = e.partial_t
             ret = e.partial_u
             if self.verbose:
-                print(
-                    f"IntegrationException, exiting integration at x={max(x)}:\n\t",
-                    e,
-                )
+                print(f"Exiting integration at x={max(x)}:\n\t", e)
         except DomainExpansionRequest as e:
-            x = e.partial_t
-            ret = e.partial_u
-            ybnd = e.expand_y
-            zbnd = e.expand_z
+            x, ret = e.partial_t, e.partial_u
+            ybnd, zbnd = e.expand_y, e.expand_z
             # every time we get here, expand the expansion...
             if np.any(ybnd):
                 self.ybuff += 1
@@ -464,14 +438,7 @@ class CurledWakeWindfield(Windfield):
 
         if len(x) > 1:
             # append and concatenate progress
-            du_new, dk_new = self.k_module.unpack_outputs(ret)
-            dv_new = np.repeat(self.dv[-1][None, ...], len(x) - 1, axis=0)
-            dw_new = np.repeat(self.dw[-1][None, ...], len(x) - 1, axis=0)
-
-            self.du = np.concatenate([self.du, du_new[1:, ...]], axis=0)
-            self.dv = np.concatenate([self.dv, dv_new], axis=0)
-            self.dw = np.concatenate([self.dw, dw_new], axis=0)
-            self.dk = np.concatenate([self.dk, dk_new[1:, ...]], axis=0)
+            self._finalize_outputs(xnew=x[1:], ret=ret[1:])
             self.grid[0] = np.concatenate([self.grid[0], x[1:]])
 
         # if we hit a DomainExpansionRequest, need to expand the grid and continue integrating
@@ -486,12 +453,103 @@ class CurledWakeWindfield(Windfield):
             )
             self._march(xmax=xmax)  # recursive call to continue marching
 
+    def _pack_inputs(self):
+        """Returns a flattened initial condition array for marched variables"""
+        ic = []
+        for name in self.fields_to_integrate:
+            ic.append(self.modules[name].field[-1, ...])
+        ic = np.stack(ic, axis=-1)
+        return ic.flatten()
+
+    def _unpack_inputs(self, x, state: ArrayLike) -> ArrayLike:
+        """Returns a dictionary of variables from the flattened state reshaped to (ny, nz)"""
+        reshape = state.reshape(self.shape[1:] + (len(self.fields_to_integrate),))
+        ret = {name: reshape[..., i] for i, name in enumerate(self.fields_to_integrate)}
+        # compute the fields that aren't in the inputs
+        for name in self.fields_other:
+            ret[name] = self.modules[name].get_field_x(x)
+        return ret
+
+    def _return_derivatives(self, x) -> ArrayLike:
+        """Returns a flattened array of the outputs from _step"""
+        ret = []
+        for name in self.fields_to_integrate:
+            ret.append(self.modules[name].ddx(x))
+        return np.stack(ret, axis=-1).flatten()
+
+    def _finalize_outputs(self, xnew: ArrayLike, ret: ArrayLike):
+        """
+        Reshapes the flattened outputs from _step to the shape of the grid.
+        Additionally, computes the analytical fields which are not marched in space.
+
+        Returns
+        -------
+        None
+        """
+        shape = (len(xnew), *self.shape[1:], len(self.fields_to_integrate))
+        reshape = ret.reshape(shape)
+        # concatenate fields along x:
+        for i, name in enumerate(self.fields_to_integrate):
+            m = self.modules[name]
+            m.field = np.concatenate([m.field, reshape[..., i]], axis=0)
+
+        # now compute the analytical fields which are not marched in space
+        for name in self.fields_other:
+            m = self.modules[name]
+            m.field = np.concatenate([m.field, m.get_field_x(xnew)], axis=0)
+
+    def _check_yz_bounds(self, x, vars):
+        check_yz = []
+        for name, m in self.modules.items(): 
+            if m.march_field and m.check_yz: 
+                check_yz.append(check_state_bounds(vars[name], thresh=m.bound_thresh))
+        
+        if np.any([check_yz]):
+            # if any of the checks fail, we need to expand the domain along those dimensions
+            ybnd, zbnd = np.max(check_yz, axis=0)
+            raise DomainExpansionRequest(
+                f"Expanding domain at {x=:.2f}", expand_y=ybnd, expand_z=zbnd
+            )
+
+
     @property
     def shape(self) -> tuple[int, int, int]:
         """
         Returns the shape of the grid.
         """
         return (len(self.grid[0]), len(self.grid[1]), len(self.grid[2]))
+
+    @property
+    def du(self):
+        return self.modules["du"].field  # solved du-field
+
+    @property
+    def dv(self):
+        return self.modules["dv"].field  # solved dv-field
+
+    @property
+    def dw(self):
+        return self.modules["dw"].field  # solved dw-field
+
+    @property
+    def dk(self):
+        return self.modules["dk"].field  # solved k_wake field
+
+    @du.setter
+    def du(self, value):
+        self.modules["du"].field = value
+
+    @dv.setter
+    def dv(self, value):
+        self.modules["dv"].field = value
+
+    @dw.setter
+    def dw(self, value):
+        self.modules["dw"].field = value
+
+    @dk.setter
+    def dk(self, value):
+        self.modules["dk"].field = value
 
 
 @dataclass
@@ -507,12 +565,225 @@ class TurbineProperties:
     rotor_solution: RotorSolution
 
 
-# ===========================================================================
-# ======================== TURBULENCE MODELING ==============================
-# ===========================================================================
+# ███████ ██ ███████ ██      ██████       ██████ ██       █████  ███████ ███████ 
+# ██      ██ ██      ██      ██   ██     ██      ██      ██   ██ ██      ██      
+# █████   ██ █████   ██      ██   ██     ██      ██      ███████ ███████ ███████ 
+# ██      ██ ██      ██      ██   ██     ██      ██      ██   ██      ██      ██ 
+# ██      ██ ███████ ███████ ██████       ██████ ███████ ██   ██ ███████ ███████ 
 
 
-class CurledTurbulenceModel(ABC):
+class Field(ABC):
+    """
+    Base class for a field variable in the curled wake model. This
+    field may evolve in space, or it may have an analytical solution, or
+    it may be constant.
+    """
+
+    def __init__(self, curledwake: CurledWakeWindfield):
+        """
+        Initializes the field with a link to the curled wake solver object.
+        """
+        self.curledwake = curledwake
+        self.field = None  # this will be initialized in a separate function
+        self.march_field = False  # whether this field evolves in space
+        self.check_yz = False
+        self.bound_thresh = None
+
+    def ddx(self):
+        """Returns the derivative d(field)/dx if self.march_field is True"""
+        if self.march_field:
+            raise NotImplementedError()
+        else:
+            return None
+
+    def get_field_x(self, x):
+        """
+        Computes the field at location x, or returns the field if this
+        variable is marched in space. By default, this assumes a static
+        field and returns the nearest value.
+        """
+        if np.isscalar(x):
+            xid = np.argmin(np.abs(self.x - x))  # could also interpolate
+            return self.field[xid, ...]
+        else:
+            ret = []
+            for _x in x:
+                ret.append(self.get_field_x(_x))
+            return np.stack(ret, axis=0)
+
+    @property
+    def x(self):
+        return self.curledwake.grid[0]
+
+
+class CurledUModel(Field):
+    """
+    Class for the u-velocity field in the curled wake model.
+    """
+
+    _registry = {}
+    name: str  # fill this in for each model
+
+    def __init__(self, curledwake: CurledWakeWindfield):
+        self.curledwake = curledwake  # link to the curled wake solver object
+
+    def __init_subclass__(cls, **kwargs):
+        """
+        This special method is called when a subclass is created.
+        It registers the subclass in the u-model registry.
+        """
+        super().__init_subclass__(**kwargs)
+        if hasattr(cls, "name"):
+            cls._registry[cls.name] = cls
+        else:
+            raise ValueError(f"Subclass {cls.__name__} must define a 'name' attribute.")
+
+    @classmethod
+    def get_model(cls, name: str, *args, **kwargs):
+        """
+        Factory method to get an instance of a u-model.
+        """
+        model_class = cls._registry.get(name)
+        if not model_class:
+            raise ValueError(
+                f"Unknown u-model: '{name}'. "
+                f"Available models: {list(cls._registry.keys())}"
+            )
+        return model_class(*args, **kwargs)
+
+
+class DefaultUModel(CurledUModel):
+    """
+    Default u-model for the curled wake model. This is a constant model
+    that does not evolve in space.
+    """
+
+    name = "default"
+
+    def __init__(self, curledwake: CurledWakeWindfield, thresh=1e-4):
+        super().__init__(curledwake=curledwake)
+        self.march_field = True
+        self.check_yz = True
+        self.bound_thresh = thresh  # abs threshold for checking bounds
+
+    def ddx(self, x):
+        """Computes d(du)/dx at location x"""
+        _vars = self.curledwake.shared_flow_data
+        du = _vars["du"]  # get the u-velocity field
+        u = _vars["u"]
+        v = _vars["v"]
+        w = _vars["w"]
+        nu_T = _vars.get("nu_T", self.curledwake.modules["dk"].nu_T(x))
+        y, z = self.curledwake.grid[1:]
+        # ============== du/dx computation ==============
+        dudy = np.gradient(du, y, axis=0)
+        dudz = np.gradient(du, z, axis=1)
+        d2udy2 = second_der(du, self.curledwake.dy, axis=0)
+        d2udz2 = second_der(du, self.curledwake.dz, axis=1)
+        dudx = (-v * dudy - w * dudz + nu_T * (d2udy2 + d2udz2)) / u
+        return dudx
+
+
+class CurledVModel(Field):
+    """
+    Class for the v-velocity field in the curled wake model.
+    This is a constant model that does not evolve in space.
+    """
+
+    _registry = {}
+    name: str  # fill this in for each model
+
+    def __init__(self, curledwake: CurledWakeWindfield):
+        self.curledwake = curledwake  # link to the curled wake solver object
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if hasattr(cls, "name"):
+            cls._registry[cls.name] = cls
+        else:
+            raise ValueError(f"Subclass {cls.__name__} must define a 'name' attribute.")
+
+    @classmethod
+    def get_model(cls, name: str, *args, **kwargs):
+        """
+        Factory method to get an instance of a v-model.
+        """
+        model_class = cls._registry.get(name)
+        if not model_class:
+            raise ValueError(
+                f"Unknown v-model: '{name}'. "
+                f"Available models: {list(cls._registry.keys())}"
+            )
+        return model_class(*args, **kwargs)
+
+
+class DefaultVModel(CurledVModel):
+    """
+    Default v-model for the curled wake model. This is a constant model
+    that does not evolve in space.
+    """
+
+    name = "default"
+
+    def __init__(self, curledwake: CurledWakeWindfield):
+        super().__init__(curledwake=curledwake)
+        self.march_field = False  # v does not evolve in space
+
+
+class CurledWModel(Field):
+    """
+    Class for the w-velocity field in the curled wake model.
+    This is a constant model that does not evolve in space.
+    """
+
+    _registry = {}
+    name: str  # fill this in for each model
+
+    def __init__(self, curledwake: CurledWakeWindfield):
+        self.curledwake = curledwake  # link to the curled wake solver object
+
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if hasattr(cls, "name"):
+            cls._registry[cls.name] = cls
+        else:
+            raise ValueError(f"Subclass {cls.__name__} must define a 'name' attribute.")
+
+    @classmethod
+    def get_model(cls, name: str, *args, **kwargs):
+        """
+        Factory method to get an instance of a w-model.
+        """
+        model_class = cls._registry.get(name)
+        if not model_class:
+            raise ValueError(
+                f"Unknown w-model: '{name}'. "
+                f"Available models: {list(cls._registry.keys())}"
+            )
+        return model_class(*args, **kwargs)
+
+
+class DefaultWModel(CurledWModel):
+    """
+    Default w-model for the curled wake model. This is a constant model
+    that does not evolve in space.
+    """
+
+    name = "default"
+
+    def __init__(self, curledwake: CurledWakeWindfield):
+        super().__init__(curledwake=curledwake)
+        self.march_field = False  # v does not evolve in space
+
+
+# ████████ ██    ██ ██████  ██████  ██    ██ ██      ███████ ███    ██  ██████ ███████     ███    ███  ██████  ██████  ███████ ██      ███████
+#    ██    ██    ██ ██   ██ ██   ██ ██    ██ ██      ██      ████   ██ ██      ██          ████  ████ ██    ██ ██   ██ ██      ██      ██
+#    ██    ██    ██ ██████  ██████  ██    ██ ██      █████   ██ ██  ██ ██      █████       ██ ████ ██ ██    ██ ██   ██ █████   ██      ███████
+#    ██    ██    ██ ██   ██ ██   ██ ██    ██ ██      ██      ██  ██ ██ ██      ██          ██  ██  ██ ██    ██ ██   ██ ██      ██           ██
+#    ██     ██████  ██   ██ ██████   ██████  ███████ ███████ ██   ████  ██████ ███████     ██      ██  ██████  ██████  ███████ ███████ ███████
+
+
+class CurledTurbulenceModel(Field):
     """
     Base class for the turbulence model in the curled wake model.
 
@@ -525,6 +796,7 @@ class CurledTurbulenceModel(ABC):
     def __init__(self, curledwake: CurledWakeWindfield):
         self.curledwake = curledwake  # link to the curled wake solver object
         self.need_reshape = False
+        self.march_field = False
 
     def __init_subclass__(cls, **kwargs):
         """
@@ -556,51 +828,6 @@ class CurledTurbulenceModel(ABC):
         Returns nu_T, the eddy viscosity for the turbulence model
         """
         ...
-
-    def update_ic(self, ic):
-        """
-        Update the initial condition for the turbulence model
-        """
-        return ic
-
-    def unpack_inputs(self, state):
-        """
-        Unpack inputs for the forward marching u^n and possibly k^{n+1}
-
-        Returns:
-        - du: wake deficit
-        - dk: k_wake field (default is 0)
-        """
-        if state.ndim == 1:
-            self.need_reshape = True  # we will need this in packing the outputs
-            state = state.reshape(self.curledwake.shape[1:])
-        return state, np.zeros_like(state)
-
-    def pack_outputs(self, dudx, dkdx):
-        """
-        Pack outputs for the forward marching dudx and possibly dkdx
-        """
-        if self.need_reshape:
-            dudx = dudx.flatten()
-        return dudx
-
-    def unpack_outputs(self, ret):
-        """
-        Unpack the output result of the forward marching
-        """
-        return ret, np.zeros_like(ret)  # default: no k_wake field
-
-    def compute_dkdx(self):
-        """
-        Computes the dk/dx term for the turbulence model.
-        """
-        return None  # by default, this is not needed
-
-    def update_wake_fields(self, u, v, w, k, du, dv, dw, dk):
-        """
-        Update the wake fields for the turbulence model.
-        """
-        pass  # by default, these are not needed
 
     def __repr__(self):
         return f"CurledTurbulenceModel: {self.__class__.__name__}"
@@ -696,7 +923,7 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
 
     name = "k-l"
 
-    def __init__(self, curledwake, C_nu=0.04, C_k1=1, C_k2=1):
+    def __init__(self, curledwake, C_nu=0.04, C_k1=1, C_k2=1, thresh=1e-6):
         """
         Initializes a k-l turbulence model with fixed model parameters.
 
@@ -711,34 +938,17 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
         self.C_k1 = C_k1
         self.C_k2 = C_k2
         self.nu_T_cached = 0
-        self.dk = None  # we will save this field from parsing inputs
-        self.u, self.v, self.w, self.k = None, None, None, None
-        self.du, self.dv, self.dw, self.dk = None, None, None, None
+        self.march_field = True
+        self.check_yz = True
+        self.bound_thresh = thresh  # abs threshold for checking bounds
 
-    def update_ic(self, ic):
-        """
-        Stacks the k_wake field to the initial condition for the forward marching.
-        """
-        return np.stack([ic, self.curledwake.dk[-1, ...]], axis=-1)
-
-    def update_wake_fields(self, u, v, w, k, du, dv, dw, dk):
-        """
-        Update the wake fields for the turbulence model.
-        """
-        self.u = u
-        self.v = v
-        self.w = w
-        self.k = k
-        self.du = du
-        self.dv = dv
-        self.dw = dw
-        self.dk = dk
 
     def nu_T(self, x):
         """
         Computes Eq. 6 in Klemmer and Howland (2025)
         """
-        lmix = interpolate_lmix(self.du, self.curledwake.grid[1])[:, None]
+        vars = self.curledwake.shared_flow_data
+        lmix = interpolate_lmix(vars["du"], self.curledwake.grid[1])[:, None]
         if np.any(lmix <= 0):
             raise IntegrationException("lmix is non-positive")
 
@@ -746,69 +956,49 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
             :, None
         ]
         self.nu_T_cached = self.C_nu * (
-            (1 - heaviside) * np.sqrt(np.clip(self.k - self.dk, 0, None)) * 1
-            + heaviside * np.sqrt(np.clip(self.k, 0, None)) * lmix
+            (1 - heaviside) * np.sqrt(np.clip(vars["k"] - vars["dk"], 0, None)) * 1
+            + heaviside * np.sqrt(np.clip(vars["k"], 0, None)) * lmix
         )
         return self.nu_T_cached
 
-    def compute_dkdx(self):
+    def ddx(self, x):
         """
         Computes the dk/dx term for the turbulence model.
         """
         y = self.curledwake.grid[1]
         z = self.curledwake.grid[2]
         nu_T = self.nu_T_cached
-        lmix = interpolate_lmix(self.du, y)[:, None]
+        vars = self.curledwake.shared_flow_data
+        u, v, w, du, dk = [vars[name] for name in ["u", "v", "w", "du", "dk"]]
+        lmix = interpolate_lmix(du, y)[:, None]
         if np.any(lmix <= 0):
             raise IntegrationException("lmix is non-positive")
 
         # transport equation for k_wake, written in parabolic form:
         dkdx = (
-            -self.v * np.gradient(self.dk, y, axis=0)
-            - self.w * np.gradient(self.dk, z, axis=1)
+            -v * np.gradient(dk, y, axis=0)
+            - w * np.gradient(dk, z, axis=1)
             + nu_T
             * (
-                np.gradient(self.du, y, axis=0) * np.gradient(self.u, y, axis=0)
-                + np.gradient(self.du, z, axis=1) * np.gradient(self.u, z, axis=1)
+                np.gradient(du, y, axis=0) * np.gradient(u, y, axis=0)
+                + np.gradient(du, z, axis=1) * np.gradient(u, z, axis=1)
             )
             + self.C_k1  # pull out of gradient as C_k1 is constant
             * (
-                np.gradient(nu_T * np.gradient(self.dk, y, axis=0), y, axis=0)
-                + np.gradient(nu_T * np.gradient(self.dk, z, axis=1), z, axis=1)
+                np.gradient(nu_T * np.gradient(dk, y, axis=0), y, axis=0)
+                + np.gradient(nu_T * np.gradient(dk, z, axis=1), z, axis=1)
             )
             # need np.clip for the sqrt here
-            - self.C_k2 * (np.clip(self.dk, 0, None) ** (3 / 2) / lmix)
-        ) / self.u
+            - self.C_k2 * (np.clip(dk, 0, None) ** (3 / 2) / lmix)
+        ) / u
         return dkdx
 
-    def unpack_inputs(self, state):
-        """
-        Returns:
-        - du: wake deficit
-        - dk: k_wake field
-        """
-        if state.ndim == 1:
-            self.need_reshape = True  # we will need this in packing the outputs
-            state = state.reshape(self.curledwake.shape[1:] + (2,))
 
-        self.dk = state[..., 1]
-        return state[..., 0], state[..., 1]
-
-    def pack_outputs(self, dudx, dkdx):
-        """
-        Pack outputs for the forward marching dudx, dkdx
-        """
-        ret = np.stack([dudx, dkdx], axis=-1)
-        if self.need_reshape:
-            return ret.flatten()
-        else:
-            return ret
-
-    def unpack_outputs(self, ret):
-        """
-        Unpack the output result of the forward marching
-        """
-        return ret[..., 0], ret[..., 1]
+# ███████ ██    ██ ███    ██  ██████ ████████ ██  ██████  ███    ██ ███████ 
+# ██      ██    ██ ████   ██ ██         ██    ██ ██    ██ ████   ██ ██      
+# █████   ██    ██ ██ ██  ██ ██         ██    ██ ██    ██ ██ ██  ██ ███████ 
+# ██      ██    ██ ██  ██ ██ ██         ██    ██ ██    ██ ██  ██ ██      ██ 
+# ██       ██████  ██   ████  ██████    ██    ██  ██████  ██   ████ ███████ 
 
 
 def check_state_bounds(state, thresh=1e-4):

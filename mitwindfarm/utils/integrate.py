@@ -6,7 +6,7 @@ Kirby Heck
 """
 
 import numpy as np
-from scipy import integrate  # import solve_ivp as solve_ivp_scipy
+from scipy import integrate
 
 
 def rk4_step(t_n, u_n, dudt, dt):
@@ -132,13 +132,6 @@ def solve_ivp(dudt, T, u0, dt=0.1, f=rk4_step, end_exact=True, **kwargs):
             e.partial_t = np.array(t)  # save integration up to this point
             e.partial_u = np.array(ut)
             raise e
-            # raise DomainExpansionRequest(
-            #     "Domain expansion requested during integration.",
-            #     partial_t=np.array(t),
-            #     partial_u=np.array(ut),
-            #     expand_y=e.expand_y,
-            #     expand_z=e.expand_z,
-            # ) from e
 
         # save solution
         ut.append(u_n1)
