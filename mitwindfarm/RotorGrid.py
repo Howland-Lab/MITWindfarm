@@ -127,7 +127,7 @@ class Area:
         return (
             4
             / np.pi
-            * np.trapezoid(
-                np.trapezoid(self.r_mesh * U, self.r_mesh, axis=-1), self.thetas, axis=-1
+            * np.trapz(
+                np.trapz(self.r_mesh * U, self.r_mesh, axis=-1), self.thetas, axis=-1
             )
         )
