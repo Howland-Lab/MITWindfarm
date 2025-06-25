@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-from mitwindfarm import Uniform, Layout
+from mitwindfarm import Uniform, Layout, PowerLaw
 from mitwindfarm.Plotting import plot_windfarm
 from mitwindfarm.windfarm import Windfarm, CurledWindfarm
 from mitwindfarm.Rotor import UnifiedAD_TI
@@ -12,8 +12,14 @@ FIGDIR = Path(__file__).parent.parent / "fig"
 FIGDIR.mkdir(exist_ok=True, parents=True)
 
 
-def plot_example():
-    base_windfield = Uniform(TIamb=0.05)  # 5% ambient TI
+def plot_example(powerlaw=False):
+    if powerlaw: 
+        zhub = 1  # hub height in diameters
+        base_windfield = PowerLaw(Uref=1, zref=zhub, exp=0.11, TIamb=0.05)
+    else:  # plot uniform inflow
+        zhub = 0
+        base_windfield = Uniform(TIamb=0.05)  # 5% ambient TI
+
     wf = CurledWindfarm(
         rotor_model=UnifiedAD_TI(),
         base_windfield=base_windfield,
@@ -26,7 +32,7 @@ def plot_example():
         ),
     )
     wf_gauss = Windfarm(TIamb=0.05)
-    layout = Layout([0, 5, 10], [0, 0.4, 0.8], [0, 0, 0])
+    layout = Layout([0, 5, 10], [0, 0.4, 0.8], [zhub, zhub, zhub])
     setpoints = [
         (2, np.radians(30)),
         (2, np.radians(15)),
@@ -65,5 +71,5 @@ def plot_example():
 
 
 if __name__ == "__main__":
-    plot_example()
+    plot_example(powerlaw=True)
     plt.close()
