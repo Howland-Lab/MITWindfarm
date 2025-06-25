@@ -397,7 +397,7 @@ class CurledWakeWindfield(Windfield):
             if np.any(np.isnan(_state)):
                 raise IntegrationException(f"nan value encountered at x={x:.3f}")
             vars = self._unpack_inputs(x, _state)  # computes all of the deficit fields
-            if self.auto_expand: 
+            if self.auto_expand:
                 self._check_yz_bounds(x, vars)  # may raise DomainExpansionRequest
 
             # Full velocity fields for advection:
@@ -500,17 +500,16 @@ class CurledWakeWindfield(Windfield):
 
     def _check_yz_bounds(self, x, vars):
         check_yz = []
-        for name, m in self.modules.items(): 
-            if m.march_field and m.check_yz: 
+        for name, m in self.modules.items():
+            if m.march_field and m.check_yz:
                 check_yz.append(check_state_bounds(vars[name], thresh=m.bound_thresh))
-        
+
         if np.any([check_yz]):
             # if any of the checks fail, we need to expand the domain along those dimensions
             ybnd, zbnd = np.max(check_yz, axis=0)
             raise DomainExpansionRequest(
                 f"Expanding domain at {x=:.2f}", expand_y=ybnd, expand_z=zbnd
             )
-
 
     @property
     def shape(self) -> tuple[int, int, int]:
@@ -565,11 +564,11 @@ class TurbineProperties:
     rotor_solution: RotorSolution
 
 
-# ███████ ██ ███████ ██      ██████       ██████ ██       █████  ███████ ███████ 
-# ██      ██ ██      ██      ██   ██     ██      ██      ██   ██ ██      ██      
-# █████   ██ █████   ██      ██   ██     ██      ██      ███████ ███████ ███████ 
-# ██      ██ ██      ██      ██   ██     ██      ██      ██   ██      ██      ██ 
-# ██      ██ ███████ ███████ ██████       ██████ ███████ ██   ██ ███████ ███████ 
+# ███████ ██ ███████ ██      ██████       ██████ ██       █████  ███████ ███████
+# ██      ██ ██      ██      ██   ██     ██      ██      ██   ██ ██      ██
+# █████   ██ █████   ██      ██   ██     ██      ██      ███████ ███████ ███████
+# ██      ██ ██      ██      ██   ██     ██      ██      ██   ██      ██      ██
+# ██      ██ ███████ ███████ ██████       ██████ ███████ ██   ██ ███████ ███████
 
 
 class Field(ABC):
@@ -618,7 +617,7 @@ class Field(ABC):
 
 class CurledUModel(Field):
     """
-    Class for the u-velocity field in the curled wake model.
+    Abstract class for the u-velocity field in the curled wake model.
     """
 
     _registry = {}
@@ -674,6 +673,7 @@ class DefaultUModel(CurledUModel):
         v = _vars["v"]
         w = _vars["w"]
         nu_T = _vars.get("nu_T", self.curledwake.modules["dk"].nu_T(x))
+        _vars["nu_T"] = nu_T  # update nu_T in shared flow data
         y, z = self.curledwake.grid[1:]
         # ============== du/dx computation ==============
         dudy = np.gradient(du, y, axis=0)
@@ -686,7 +686,7 @@ class DefaultUModel(CurledUModel):
 
 class CurledVModel(Field):
     """
-    Class for the v-velocity field in the curled wake model.
+    Abstract class for the v-velocity field in the curled wake model.
     This is a constant model that does not evolve in space.
     """
 
@@ -730,9 +730,40 @@ class DefaultVModel(CurledVModel):
         self.march_field = False  # v does not evolve in space
 
 
+class MarchedVMdodel(CurledVModel):
+    """
+    Forward-marched v-model which includes ABL effects, turbulence, and
+    Coriolis forces. 
+    """
+    
+    name = "marched"
+
+    def __init__(self, curledwake, Ro=1e10, check_zy=False):
+        super().__init__(curledwake)
+        self.march_field = True
+        self.check_yz = check_zy
+        self.Ro = Ro  # Rossby number with vertical rotation effects Ro = u_h/(fc * D)
+
+    def ddx(self, x):
+        """Computes d(du)/dx at location x"""
+        _vars = self.curledwake.shared_flow_data
+        du, dv, u, v, w = [_vars[key] for key in ["du", "dv", "u", "v", "w"]]
+        nu_T = _vars.get("nu_T", self.curledwake.modules["dk"].nu_T(x))
+        _vars["nu_T"] = nu_T  # update nu_T in shared flow data
+        y, z = self.curledwake.grid[1:]
+        # ============== du/dx computation ==============
+        dvdy = 0  # np.gradient(dv, y, axis=0)
+        dvdz = 0  # np.gradient(dv, z, axis=1)
+        d2vy = 0  # np.gradient(nu_T * dvdy, y, axis=0)
+        d2vz = 0  # np.gradient(nu_T * dvdz, z, axis=1)
+        coriolis = -1 / self.Ro * (du)
+        dvdx = (-v * dvdy - w * dvdz + coriolis + d2vy + d2vz) / u
+        return dvdx
+
+
 class CurledWModel(Field):
     """
-    Class for the w-velocity field in the curled wake model.
+    Abstract class for the w-velocity field in the curled wake model.
     This is a constant model that does not evolve in space.
     """
 
@@ -942,7 +973,6 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
         self.check_yz = True
         self.bound_thresh = thresh  # abs threshold for checking bounds
 
-
     def nu_T(self, x):
         """
         Computes Eq. 6 in Klemmer and Howland (2025)
@@ -994,11 +1024,11 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
         return dkdx
 
 
-# ███████ ██    ██ ███    ██  ██████ ████████ ██  ██████  ███    ██ ███████ 
-# ██      ██    ██ ████   ██ ██         ██    ██ ██    ██ ████   ██ ██      
-# █████   ██    ██ ██ ██  ██ ██         ██    ██ ██    ██ ██ ██  ██ ███████ 
-# ██      ██    ██ ██  ██ ██ ██         ██    ██ ██    ██ ██  ██ ██      ██ 
-# ██       ██████  ██   ████  ██████    ██    ██  ██████  ██   ████ ███████ 
+# ███████ ██    ██ ███    ██  ██████ ████████ ██  ██████  ███    ██ ███████
+# ██      ██    ██ ████   ██ ██         ██    ██ ██    ██ ████   ██ ██
+# █████   ██    ██ ██ ██  ██ ██         ██    ██ ██    ██ ██ ██  ██ ███████
+# ██      ██    ██ ██  ██ ██ ██         ██    ██ ██    ██ ██  ██ ██      ██
+# ██       ██████  ██   ████  ██████    ██    ██  ██████  ██   ████ ███████
 
 
 def check_state_bounds(state, thresh=1e-4):
