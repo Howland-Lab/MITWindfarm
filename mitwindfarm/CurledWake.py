@@ -978,7 +978,7 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
         Computes Eq. 6 in Klemmer and Howland (2025)
         """
         vars = self.curledwake.shared_flow_data
-        lmix = interpolate_lmix(vars["du"], self.curledwake.grid[1])[:, None]
+        lmix = compute_lmix(vars["du"], self.curledwake.grid[2])
         if np.any(lmix <= 0):
             raise IntegrationException("lmix is non-positive")
 
@@ -1000,7 +1000,7 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
         nu_T = self.nu_T_cached
         vars = self.curledwake.shared_flow_data
         u, v, w, du, dk = [vars[name] for name in ["u", "v", "w", "du", "dk"]]
-        lmix = interpolate_lmix(du, y)[:, None]
+        lmix = compute_lmix(vars["du"], self.curledwake.grid[2])
         if np.any(lmix <= 0):
             raise IntegrationException("lmix is non-positive")
 
@@ -1163,6 +1163,36 @@ def interpolate_lmix(du, y, method="nearest", fill_value=1.0, max_value=None, pa
         return f(y)
     else:
         return np.clip(f(y), None, max_value)
+
+
+def compute_lmix(du, z, lmix_min=1, thresh=0.05, relative=True):
+    """
+    Computes `lmix` from the 2D du field by computing the local wake width (measuring
+    the wake height, in z) at each y-location. 
+
+    Parameters:
+    - du: 2D array of delta_u
+    - z: z-coordinates
+
+    Returns:
+    - lmix: 2D yz-array of mixing length scale
+    """
+    if np.any(np.isnan(du)):
+        raise ValueError("du contains NaN values")
+    
+    du = np.abs(du)
+    nz = du.shape[1]
+    _thresh = thresh * np.max(du) if relative else thresh
+    above_thresh = du > _thresh
+
+    # now we need to find the bounds of where du is above the threshold
+    z_below = z[np.argmax(above_thresh, axis=1)]
+    z_above = z[nz - 1 - np.argmax(np.flip(above_thresh, axis=1), axis=1)]
+    lmix = (z_above - z_below) * np.any(above_thresh, axis=1)
+    
+    if lmix_min is not None: 
+        lmix = np.clip(lmix, lmix_min, None)
+    return lmix[:, None]
 
 
 def get_heaviside(x, yax, turbines, default_x0=1):
