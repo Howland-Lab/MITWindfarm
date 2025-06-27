@@ -14,7 +14,7 @@ from warnings import warn
 from numpy.typing import ArrayLike
 import numpy as np
 from scipy.signal import convolve2d
-from scipy.interpolate import interpn, interp1d
+from scipy.interpolate import interpn, make_interp_spline
 
 from mitwindfarm.Windfield import Windfield
 from mitwindfarm.Rotor import RotorSolution
@@ -904,13 +904,17 @@ def get_wake_bounds_z(du, thresh=0.05, relative=True):
     return zcross
 
 
-def interpolate_lmix(du, y, method="nearest", fill_value=1.0, max_value=None, pad=True):
+def interpolate_lmix(du, y, k=0, fill_value=1.0, max_value=None, pad=True):
     """
     Interpolates the mixing length scale from the du field.
 
     Parameters:
     - du: 2D array of delta_u
     - y: y-coordinates
+    - k: interpolation order (default: 0, nearest neighbor)
+    - fill_value: value to fill if no bounds are found (default: 1.0)
+    - max_value: maximum value for the mixing length scale (default: None, no limit)
+    - pad: whether to pad the du field with zeros (default: True)
 
     Returns:
     - lmix: 1D array of mixing length scale
@@ -932,12 +936,10 @@ def interpolate_lmix(du, y, method="nearest", fill_value=1.0, max_value=None, pa
 
     y_mean = np.mean(y_bounds, axis=0)
     y_width = np.diff(y_bounds, axis=0).flatten()
-    f = interp1d(
+    f = make_interp_spline(
         y_mean,
         y_width,
-        kind=method,
-        fill_value=(y_width[0], y_width[-1]),
-        bounds_error=False,
+        k=k,  # nearest interpolation
     )
     if max_value is None:
         return f(y)
