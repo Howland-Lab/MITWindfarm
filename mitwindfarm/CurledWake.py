@@ -8,7 +8,7 @@ Kirby Heck
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Union
 from warnings import warn
 
 from numpy.typing import ArrayLike
@@ -70,6 +70,7 @@ class CurledWakeWindfield(Windfield):
         w_kwargs: dict = None,
         k_kwargs: dict = None,
         ic_method: Literal["du", "fx"] = "du",
+        bottom_wall_z: Union[float, bool] = None,
         clip_u: float = 0.1,
         use_r4: bool = True,
         auto_expand: bool = True,
@@ -91,10 +92,17 @@ class CurledWakeWindfield(Windfield):
         - smooth_fact: Smoothing factor for the initial condition stencil (default: 1).
         - N_vortex: Number of vortices to use for the dv, dw initial conditions (default: 10).
         - sigma_vortex: radius for the vortex de-singularization (default: 0.2).
-        - k_model: Turbulence model to use (default: "k-l").
-        - k_kwargs: Additional arguments for the turbulence model (default: None).
         - ic_method: Method for initial condition stamping (default: "du").
             NOTE: "fx" is experimental and only solves for EF marching.
+        - u_model: Model for the u-velocity field (default: "default").
+        - v_model: Model for the v-velocity field (default: "analytical").
+        - w_model: Model for the w-velocity field (default: "analytical").
+        - k_model: Turbulence model to use (default: "k-l").
+        - u_kwargs: Additional arguments for the u-velocity model (default: None).
+        - v_kwargs: Additional arguments for the v-velocity model (default: None).
+        - w_kwargs: Additional arguments for the w-velocity model (default: None).
+        - k_kwargs: Additional arguments for the turbulence model (default: None).
+        - bottom_wall_z: If True, imposes a wall condition at the given value (default: False).
         - clip_u: Whether to clip the u-velocity to prevent negative values (default: 0.1).
             Set to <= 0 to disable clipping
         - use_r4: Whether to use the r4 rotor radius for initial conditions (default: True).
@@ -143,6 +151,7 @@ class CurledWakeWindfield(Windfield):
 
         # The grid will get initialized later in check_grid_init()
         self.grid = None  # list of [x, y, z] axes
+        self.bottom_wall_z = -np.inf if bottom_wall_z is None else bottom_wall_z
 
         self.smooth_fact = smooth_fact  # smoothing factor for the IC stencil
         self.turbines = []
@@ -159,7 +168,7 @@ class CurledWakeWindfield(Windfield):
 
         wsp_base = self.base_windfield.wsp(x, y, z)
         wsp_wakes = interpn(
-            (self.grid[0], self.grid[1], self.grid[2]),
+            (self.x, self.y, self.z),
             self.du,
             (x.ravel(), y.ravel(), z.ravel()),
             method="linear",
@@ -181,7 +190,7 @@ class CurledWakeWindfield(Windfield):
         wsp_base = self.base_windfield.wsp(x, y, z)
 
         k_wake = interpn(
-            (self.grid[0], self.grid[1], self.grid[2]),
+            (self.x, self.y, self.z),
             self.dk,
             (x.ravel(), y.ravel(), z.ravel()),
             method="linear",
@@ -242,8 +251,8 @@ class CurledWakeWindfield(Windfield):
         ay = r4 * np.cos(rotor.yaw)
         az = r4  # TODO: could factor in rotor tilt later on
         shape = ic_stencil(
-            self.grid[1],
-            self.grid[2],
+            self.y,
+            self.z,
             yt,
             zt,
             smooth_fact=smooth_fact,
@@ -270,31 +279,37 @@ class CurledWakeWindfield(Windfield):
         if rotor.yaw == 0:
             return  # no additional dv, dw to stamp in for this turbine
 
-        # r-axis: clip edges to prevent singularities
-        r_i = np.linspace(-(D - self.dz) / 2, (D - self.dz) / 2, self.N_vortex)
-        # NOTE: rotor.Ct differs from Shapiro et al. (2018) definition - includes cos^2(yaw)
+        # NOTE: rotor.Ct differs from Shapiro et al. (2018) definition - includes cos^2(yaw) already
         Gamma_0 = 0.5 * D * rotor.REWS * rotor.Ct * np.sin(rotor.yaw)
-        Gamma_i = (
-            Gamma_0 * 4 * r_i / (self.N_vortex * D**2 * np.sqrt(1 - (2 * r_i / D) ** 2))
+
+        v, w = compute_vortex_field(
+            self.y,
+            self.z,
+            yt=yt,
+            zt=zt,
+            Gamma_0=Gamma_0,
+            D=D,
+            sigma_vortex=self.sigma_vortex,
+            N_vortex=self.N_vortex,
         )
+        if self.bottom_wall_z > -np.inf:
+            # symmetry vortices (negative in sign, centered around zt_ghost)
+            zt_ghost = (
+                -zt - self.bottom_wall_z * 2
+            )  # zt_ghost < 0; if bottom_wall_z = 0, then this is -zt
+            vghost, wghost = compute_vortex_field(
+                self.y,
+                self.z,
+                yt=yt,
+                zt=zt_ghost,
+                Gamma_0=Gamma_0,  # mirror the circulation also
+                D=D,
+                sigma_vortex=self.sigma_vortex,
+                N_vortex=self.N_vortex,
+            )
+            v += vghost
+            w += wghost
 
-        # generally, vortices can decay, so sigma should be a function of x  # TODO
-        sigma = self.sigma_vortex * D
-
-        # now we build the main summation, which is 3D (y, z, i)
-        yG, zG = np.meshgrid(self.grid[1], self.grid[2], indexing="ij")
-        yG = yG[..., None]
-        zG = zG[..., None]
-        rsq = (yG - yt) ** 2 + (zG - zt - r_i[None, None, :]) ** 2  # 3D grid variable
-        rsq = np.clip(rsq, 1e-8, None)  # avoid singularities
-
-        # put pieces together:
-        exponent = 1 - np.exp(-rsq / sigma**2)
-        summation = exponent / (2 * np.pi * rsq) * Gamma_i[None, None, :]
-
-        # sum all vortices along last dim
-        v = np.sum(summation * (zG - zt - r_i[None, None, :]), axis=-1)
-        w = np.sum(summation * -(yG - yt), axis=-1)
         self.dv[-1, ...] += v  # stamp in dv
         self.dw[-1, ...] += w  # stamp in dw
 
@@ -321,26 +336,27 @@ class CurledWakeWindfield(Windfield):
             raise AttributeError("Grid not initialized")
 
         # check and possibly expand grid with zero-padding
-        yax, zax = self.grid[1], self.grid[2]
         ypad, zpad = (0, 0), (0, 0)
         if y is not None:
             y = np.atleast_1d(y)
             ymin = np.min(y) - self.ybuff * add_buffers
             ymax = np.max(y) + self.ybuff * add_buffers
-            ypad_lower = np.arange(yax[0] - self.dy, ymin - self.dy, -self.dy)[::-1]
-            ypad_upper = np.arange(yax[-1] + self.dy, ymax + self.dy, self.dy)
+            ypad_lower = np.arange(self.y[0] - self.dy, ymin - self.dy, -self.dy)[::-1]
+            ypad_upper = np.arange(self.y[-1] + self.dy, ymax + self.dy, self.dy)
             # update y-grid
-            self.grid[1] = np.concatenate([ypad_lower, yax, ypad_upper])
+            self.grid[1] = np.concatenate([ypad_lower, self.y, ypad_upper])
             ypad = (len(ypad_lower), len(ypad_upper))
 
         if z is not None:
             z = np.atleast_1d(z)
-            zmin = np.min(z) - self.zbuff * add_buffers
+            zmin = np.max(
+                [np.min(z) - self.zbuff * add_buffers, self.bottom_wall_z - self.dz]
+            )
             zmax = np.max(z) + self.zbuff * add_buffers
-            zpad_lower = np.arange(zax[0] - self.dz, zmin - self.dz, -self.dz)[::-1]
-            zpad_upper = np.arange(zax[-1] + self.dz, zmax + self.dz, self.dz)
+            zpad_lower = np.arange(self.z[0] - self.dz, zmin - self.dz, -self.dz)[::-1]
+            zpad_upper = np.arange(self.z[-1] + self.dz, zmax + self.dz, self.dz)
             # update z-grid
-            self.grid[2] = np.concatenate([zpad_lower, zax, zpad_upper])
+            self.grid[2] = np.concatenate([zpad_lower, self.z, zpad_upper])
             zpad = (len(zpad_lower), len(zpad_upper))
 
         # # now we need to pad the du, dv, dw fields
@@ -358,8 +374,12 @@ class CurledWakeWindfield(Windfield):
             # Initialize the grid if it doesn't exist. Automatically add buffers
             self.grid = [
                 np.atleast_1d(x),
-                np.arange(-self.ybuff, self.ybuff + self.dy, self.dy) + y,
-                np.arange(-self.zbuff, self.zbuff + self.dz, self.dz) + z,
+                np.arange(-self.ybuff + y, self.ybuff + self.dy + y, self.dy),
+                np.arange(  # impose wall condition?
+                    np.max([self.bottom_wall_z - self.dz, -self.zbuff + z]),
+                    self.zbuff + z + self.dz,
+                    self.dz,
+                ),
             ]
 
             self.du = np.zeros(self.shape)
@@ -375,10 +395,9 @@ class CurledWakeWindfield(Windfield):
         Returns
         - None (updates grid and self.du, self.dv, self.dw, self.dk in place)
         """
-        if xmax <= np.max(self.grid[0]):
+        if xmax <= np.max(self.x):
             return  # nothing to compute!
 
-        y, z = self.grid[1:]
         ybnd, zbnd = (0, 0), (0, 0)  # initialize variables for bound checking
 
         def _step(x, _state):
@@ -401,10 +420,14 @@ class CurledWakeWindfield(Windfield):
                 self._check_yz_bounds(x, vars)  # may raise DomainExpansionRequest
 
             # Full velocity fields for advection:
-            wsp = self.base_windfield.wsp(x, y[:, None], z[None, :])
-            wdir = self.base_windfield.wdir(x, y[:, None], z[None, :])
+            wsp = self.base_windfield.wsp(x, self.y[:, None], self.z[None, :])
+            wdir = self.base_windfield.wdir(x, self.y[:, None], self.z[None, :])
             # compute k_base: assume TI = sqrt(2/3 k)/U
-            kb = (self.base_windfield.TI(x, y[:, None], z[None, :]) * wsp) ** 2 * 3 / 2
+            kb = (
+                (self.base_windfield.TI(x, self.y[:, None], self.z[None, :]) * wsp) ** 2
+                * 3
+                / 2
+            )
             vars["u"] = vars["du"] + wsp * np.cos(wdir)
             vars["v"] = vars["dv"] + wsp * np.sin(wdir)
             vars["w"] = vars["dw"] + 0
@@ -414,14 +437,13 @@ class CurledWakeWindfield(Windfield):
                 vars["u"] = np.clip(vars["u"], self.clip_u, None)
 
             self.shared_flow_data = vars  # store this in a global variable
+            self._impose_wall_conditions()  # impose wall conditions if necessary
             return self._return_derivatives(x)
 
         ic = self._pack_inputs()  # pack the initial conditions from the modules
 
         try:
-            x, ret = self.integrator(
-                _step, [self.grid[0].max(), xmax], ic, **self.ivp_kwargs
-            )
+            x, ret = self.integrator(_step, [self.x.max(), xmax], ic, **self.ivp_kwargs)
         except IntegrationException as e:
             x = e.partial_t
             ret = e.partial_u
@@ -439,7 +461,7 @@ class CurledWakeWindfield(Windfield):
         if len(x) > 1:
             # append and concatenate progress
             self._finalize_outputs(xnew=x[1:], ret=ret[1:])
-            self.grid[0] = np.concatenate([self.grid[0], x[1:]])
+            self.grid[0] = np.concatenate([self.x, x[1:]])
 
         # if we hit a DomainExpansionRequest, need to expand the grid and continue integrating
         if np.any([ybnd, zbnd]):
@@ -447,8 +469,8 @@ class CurledWakeWindfield(Windfield):
                 print(f"Expanding grid at x={np.max(x):.2f} in y={ybnd} and z={zbnd}")
 
             self.adjust_grid_bounds(
-                y=[y[0] - ybnd[0] * self.ybuff, y[-1] + ybnd[1] * self.ybuff],
-                z=[z[0] - zbnd[0] * self.zbuff, z[-1] + zbnd[1] * self.zbuff],
+                y=[self.y[0] - ybnd[0] * self.ybuff, self.y[-1] + ybnd[1] * self.ybuff],
+                z=[self.z[0] - zbnd[0] * self.zbuff, self.z[-1] + zbnd[1] * self.zbuff],
                 add_buffers=False,
             )
             self._march(xmax=xmax)  # recursive call to continue marching
@@ -469,6 +491,26 @@ class CurledWakeWindfield(Windfield):
         for name in self.fields_other:
             ret[name] = self.modules[name].get_field_x(x)
         return ret
+
+    def _impose_wall_conditions(self):
+        """
+        Impose wall boundary conditions on fields:
+        du/dz = 0; dv/dz = 0; dk/dz = 0; w=0 at the wall.
+        """
+        if self.bottom_wall_z > -np.inf:
+            # update boundary conditions with symmetry and anti-symmetry conditions
+            zid = np.argmin(np.abs(self.z - self.bottom_wall_z))  # zid at the wall
+            ghost_id = zid - 1  # ghost point below the wall
+            mirror_id = zid + 1  # mirror point above the wall
+
+            # impose wall conditions on the fields
+            flow = self.shared_flow_data
+            for key in self.fields_to_integrate:
+                flow[key][..., ghost_id] = flow[key][..., mirror_id]
+                # flow[key][..., :ghost_id] = 0
+
+            # flow["dw"][..., :zid] = 0
+            # flow["w"][..., :zid] = 0
 
     def _return_derivatives(self, x) -> ArrayLike:
         """Returns a flattened array of the outputs from _step"""
@@ -499,14 +541,21 @@ class CurledWakeWindfield(Windfield):
             m.field = np.concatenate([m.field, m.get_field_x(xnew)], axis=0)
 
     def _check_yz_bounds(self, x, vars):
+        """
+        Check all integration variables for whether to expand the domain
+        in y and/or z.
+        """
         check_yz = []
         for name, m in self.modules.items():
             if m.march_field and m.check_yz:
                 check_yz.append(check_state_bounds(vars[name], thresh=m.bound_thresh))
 
-        if np.any([check_yz]):
+        ybnd, zbnd = np.max(check_yz, axis=0)
+        if zbnd[0] and np.min(self.z) < self.bottom_wall_z:
+            zbnd[0] = False  # don't expand if the wall condition is already imposed
+
+        if np.any([ybnd, zbnd]):
             # if any of the checks fail, we need to expand the domain along those dimensions
-            ybnd, zbnd = np.max(check_yz, axis=0)
             raise DomainExpansionRequest(
                 f"Expanding domain at {x=:.2f}", expand_y=ybnd, expand_z=zbnd
             )
@@ -516,7 +565,19 @@ class CurledWakeWindfield(Windfield):
         """
         Returns the shape of the grid.
         """
-        return (len(self.grid[0]), len(self.grid[1]), len(self.grid[2]))
+        return (len(self.x), len(self.y), len(self.z))
+
+    @property
+    def x(self) -> ArrayLike:
+        return self.grid[0]
+
+    @property
+    def y(self) -> ArrayLike:
+        return self.grid[1]
+
+    @property
+    def z(self) -> ArrayLike:
+        return self.grid[2]
 
     @property
     def du(self):
@@ -678,9 +739,17 @@ class DefaultUModel(CurledUModel):
         # ============== du/dx computation ==============
         dudy = np.gradient(du, y, axis=0)
         dudz = np.gradient(du, z, axis=1)
-        d2udy2 = second_der(du, self.curledwake.dy, axis=0)
-        d2udz2 = second_der(du, self.curledwake.dz, axis=1)
-        dudx = (-v * dudy - w * dudz + nu_T * (d2udy2 + d2udz2)) / u
+        d2udy2 = np.gradient(nu_T * dudy, y, axis=0)
+        d2udz2 = np.gradient(nu_T * dudz, z, axis=1)
+        dudx = (-v * dudy - w * dudz + d2udy2 + d2udz2) / u
+        # d2udy2 = second_der(du, self.curledwake.dy, axis=0)
+        # d2udz2 = second_der(du, self.curledwake.dz, axis=1)
+        # dudx = (-v * dudy - w * dudz + nu_T * (d2udy2 + d2udz2)) / u
+        # if x > 9 and self.curledwake.bottom_wall_z > -np.inf:
+        #     import matplotlib.pyplot as plt
+        #     plt.pcolormesh(y, z, du.T); plt.gca().set_aspect(1)
+        #     plt.show()
+
         return dudx
 
 
@@ -733,9 +802,9 @@ class DefaultVModel(CurledVModel):
 class MarchedVMdodel(CurledVModel):
     """
     Forward-marched v-model which includes ABL effects, turbulence, and
-    Coriolis forces. 
+    Coriolis forces.
     """
-    
+
     name = "marched"
 
     def __init__(self, curledwake, Ro=1e10, check_zy=False):
@@ -1031,6 +1100,48 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
 # ██       ██████  ██   ████  ██████    ██    ██  ██████  ██   ████ ███████
 
 
+def compute_vortex_field(y, z, yt, zt, Gamma_0, D=1, sigma_vortex=0.1, N_vortex=10):
+    """
+    Computes the CVP field from an elliptical distribution of Lamb-Oseen vortices
+    spaced evenly along the vertical axis of the rotor disk.
+
+    Parameters:
+    - y: y-coordinates (1D array)
+    - z: z-coordinates (1D array)
+    - yt: y-coordinate of the turbine center
+    - zt: z-coordinate of the turbine center
+    - Gamma_0: Normalized circulation strength
+    - D: Rotor diameter (default: 1)
+    - sigma_vortex: Standard deviation of the vortex distribution (default: 0.1)
+    - N_vortex: Number of vortices to distribute along the rotor disk (default: 10)
+
+    Returns:
+    - v, w: 2D arrays of the velocity field components in the y and z directions
+    """
+    dz = z[1] - z[0]
+    # r-axis: clip edges to prevent singularities
+    r_i = np.linspace(-(D - dz) / 2, (D - dz) / 2, N_vortex)
+    Gamma_i = Gamma_0 * 4 * r_i / (N_vortex * D**2 * np.sqrt(1 - (2 * r_i / D) ** 2))
+    sigma = sigma_vortex * D
+
+    # now we build the main summation, which is 3D (y, z, i)
+    yG, zG = np.meshgrid(y, z, indexing="ij")
+    yG = yG[..., None]  # expand extra dimension
+    zG = zG[..., None]  # expand extra dimension
+    rsq = (yG - yt) ** 2 + (zG - zt - r_i[None, None, :]) ** 2  # 3D grid variable
+    rsq = np.clip(rsq, 1e-8, None)  # avoid singularities
+
+    # put pieces together:
+    exponent = 1 - np.exp(-rsq / sigma**2)
+    summation = exponent / (2 * np.pi * rsq) * Gamma_i[None, None, :]
+
+    # sum all vortices along last dim
+    v = np.sum(summation * (zG - zt - r_i[None, None, :]), axis=-1)
+    w = np.sum(summation * -(yG - yt), axis=-1)
+
+    return v, w
+
+
 def check_state_bounds(state, thresh=1e-4):
     """
     Check values of 2D array `state` at the boundaries to see
@@ -1170,7 +1281,7 @@ def interpolate_lmix(du, y, k=0, fill_value=1.0, max_value=None, pad=True):
 def compute_lmix(du, z, lmix_min=1, thresh=0.05, relative=True):
     """
     Computes `lmix` from the 2D du field by computing the local wake width (measuring
-    the wake height, in z) at each y-location. 
+    the wake height, in z) at each y-location.
 
     Parameters:
     - du: 2D array of delta_u
@@ -1181,7 +1292,7 @@ def compute_lmix(du, z, lmix_min=1, thresh=0.05, relative=True):
     """
     if np.any(np.isnan(du)):
         raise ValueError("du contains NaN values")
-    
+
     du = np.abs(du)
     nz = du.shape[1]
     _thresh = thresh * np.max(du) if relative else thresh
@@ -1191,8 +1302,8 @@ def compute_lmix(du, z, lmix_min=1, thresh=0.05, relative=True):
     z_below = z[np.argmax(above_thresh, axis=1)]
     z_above = z[nz - 1 - np.argmax(np.flip(above_thresh, axis=1), axis=1)]
     lmix = (z_above - z_below) * np.any(above_thresh, axis=1)
-    
-    if lmix_min is not None: 
+
+    if lmix_min is not None:
         lmix = np.clip(lmix, lmix_min, None)
     return lmix[:, None]
 
