@@ -59,33 +59,35 @@ class GaussianWake(Wake):
         self.TIamb = TIamb or 0.0
 
         # precompute centerline far downstream
-        self.x_centerline, self.y_centerline = self._centerline(xmax, dx)
+        self.x_centerline, self.yz_centerline = self._centerline(xmax, dx)
 
     def __repr__(self):
         return f"GaussianWake(x={self.x}, y={self.y}, z={self.z}, sigma={self.sigma}, kw={self.kw})"
 
     def _centerline(self, xmax: float, dx: float = 0.05) -> ArrayLike:
         """
-        Solves Eq. C4. Returns centerline y position in global coordinates.
+        Solves Eqs. C3 and C4. Returns centerline y/z position in global coordinates without constant v4/w4 factor
         """
-
         _x = np.arange(0, max(xmax, 2 * dx), dx)
         d = self._wake_diameter(_x)
+        # v and w deficit values at _x, without constant factors of v4 and w4 (see equation C3)
+        dvw = -0.5 / d**2 * (1 + erf(_x / (np.sqrt(2) / 2)))
+        # y and z centerline without  without constant factors of v4 and w4 (see integration in C4)
+        _yzc = cumulative_trapezoid(-dvw, dx=dx, initial=0)
 
-        dv = -0.5 / d**2 * (1 + erf(_x / (np.sqrt(2) / 2)))
-        _yc = cumulative_trapezoid(-dv, dx=dx, initial=0)
-
-        return _x, _yc
+        return _x, _yzc
 
     def centerline(self, x_glob: ArrayLike) -> ArrayLike:
         """
         Solves Eq. C4. Returns centerline y position in global coordinates.
+        Scales and translates the results of the `_centerline` function.
         """
-        x = x_glob - self.x
-
-        yc_temp = np.interp(x, self.x_centerline, self.y_centerline, left=0)
-
-        return yc_temp * self.rotor_sol.v4 + self.y
+        x = np.unique(x_glob - self.x)
+        yzc_temp = np.interp(x, self.x_centerline, self.yz_centerline, left=0)
+        # scale and translate centerlines
+        yc = yzc_temp * self.rotor_sol.v4 + self.y
+        zc = yzc_temp * self.rotor_sol.w4 + self.z
+        return yc, zc
 
     def centerline_wake_added_turb(self, x: ArrayLike) -> ArrayLike:
         """
@@ -110,6 +112,8 @@ class GaussianWake(Wake):
     def _wake_diameter(self, x: ArrayLike) -> ArrayLike:
         """
         Solves the normalized far-wake diameter (between C1 and C2)
+
+        Note that this is non-dimensionalized by D and x is actually x/D.
         """
         return 1 + self.kw * np.log(1 + np.exp(2 * (x - 1)))
 
@@ -128,12 +132,13 @@ class GaussianWake(Wake):
         """
         x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
         d = self._wake_diameter(x)
-        yc = self.centerline(x_glob) - self.y
+        yc, zc = self.centerline(x_glob)
+        yc, zc = yc - self.y, zc - self.z
         du = self._du(x, wake_diameter=d)
         gaussian_ = (
             1
             / (8 * self.sigma**2)
-            * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
+            * np.exp(-(((y - yc)** 2 + (z - zc)**2) / (2 * self.sigma**2 * d**2)))
         )
 
         return gaussian_ * du
@@ -145,12 +150,12 @@ class GaussianWake(Wake):
         """
         x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
         d = self._wake_diameter(x)
-        yc = self.centerline(x_glob) - self.y
+        yc, zc = self.centerline(x_glob) - self.y
         du = 0.5 * (self.rotor_sol.REWS - self.rotor_sol.u4) / d**2 * (1 + erf(x / (np.sqrt(2) / 2)))
         gaussian_ = (
             1
             / (8 * self.sigma**2)
-            * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
+            * np.exp(-(((y - yc) ** 2 + (z - zc)**2) / (2 * self.sigma**2 * d**2)))
         )
        
         return gaussian_ * du
@@ -165,7 +170,7 @@ class GaussianWake(Wake):
         """
         x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
         d = self._wake_diameter(x)
-        yc = self.centerline(x_glob) - self.y
+        yc, zc = self.centerline(x_glob) - self.y
         WATI = self.centerline_wake_added_turb(x)
 
         _gaussian = (
@@ -173,7 +178,7 @@ class GaussianWake(Wake):
             / (8 * (self.WATI_sigma_multiplier * self.sigma) ** 2)
             * np.exp(
                 -(
-                    ((y - yc) ** 2 + z**2)
+                    ((y - yc) ** 2 + (z - zc)**2)
                     / (2 * (self.WATI_sigma_multiplier * self.sigma) ** 2 * d**2)
                 )
             )
@@ -181,14 +186,14 @@ class GaussianWake(Wake):
 
         return _gaussian * np.nan_to_num(WATI)
 
-    def line_deficit(self, x: np.array, y: np.array):
+    def line_deficit(self, x: np.array, y: np.array, z = 0):
         """
         Returns the deficit at hub height averaged along a lateral line of
         length 1, centered at (x, y).
         """
 
         d = self._wake_diameter(x)
-        yc = self.centerline(x)
+        yc, zc = self.centerline(x)
         du = self._du(x, wake_diameter=d)
 
         erf_plus = erf((y + 0.5 - yc) / (np.sqrt(2) * self.sigma * d))

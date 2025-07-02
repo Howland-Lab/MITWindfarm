@@ -39,6 +39,9 @@ from .RotorGrid import RotorGrid, Point, Line, Area
 class RotorSolution:
     """
     Data class representing the solution of rotor models.
+
+    Note that the values are dimensional - they are the non-dimensional values
+    returned by the rotors, multipled by the needed factor of REWS.
     """
 
     yaw: float
@@ -258,12 +261,14 @@ class BEM(Rotor):
         sol: BEMSolution = self._model(pitch, tsr, yaw, Us / REWS, wdir)
         return RotorSolution(
             yaw,
+            0, # no tilt implemented with BEM
             sol.Cp() * REWS**3,
             sol.Ct() * REWS**2,
             sol.Ctprime(),
             sol.a() * REWS,
             sol.u4 * REWS,
             sol.v4 * REWS,
+            0,  # no tilt implemented for BEM
             REWS,
             TI=RETI,
             extra=sol,

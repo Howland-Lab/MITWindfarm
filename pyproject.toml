@@ -9,8 +9,8 @@ readme = "README.md"
 python = "^3.9"
 numpy = ">=1.16.5"
 scipy = ">=1.6"
-mitrotor = { git = "https://github.com/Howland-Lab/MITRotor.git" }
-unified-momentum-model = { git = "https://github.com/Howland-Lab/Unified-Momentum-Model.git" }
+mitrotor = { git = "https://github.com/Howland-Lab/MITRotor.git", branch = "sg/add_tilt" }
+unified-momentum-model = { git = "https://github.com/Howland-Lab/Unified-Momentum-Model.git", branch = "sg/add_tilt"}
 # [tool.poetry.group.dev.dependencies]
 ipython = { version = "^8", optional = true}
 jupyter = { version = "^1.0.0", optional = true}
