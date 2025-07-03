@@ -82,7 +82,7 @@ class GaussianWake(Wake):
         Solves Eq. C4. Returns centerline y position in global coordinates.
         Scales and translates the results of the `_centerline` function.
         """
-        x = np.unique(x_glob - self.x)
+        x = x_glob - self.x
         yzc_temp = np.interp(x, self.x_centerline, self.yz_centerline, left=0)
         # scale and translate centerlines
         yc = yzc_temp * self.rotor_sol.v4 + self.y
@@ -130,23 +130,35 @@ class GaussianWake(Wake):
         """
         Solves Eq. C1
         """
-        # calculate the centerline
-        yc, zc = self.centerline(x_glob)
-        # transform coordinates to be in turbine/wake centerline frame of reference
-        x = np.array([np.array([x_glob - self.x,]).T,])  # make array of dimension (1, n, 1)
-        y = np.array([[y_glob - yc,],]).T # make array of dimension (n, 1, 1)
-        z = np.array([[z_glob - zc,],])  # make array of dimension (1, 1, n)
- 
-        # meshgrid with all elements needed to calculate the gaussian. 
-        # xmesh, ymesh, zmesh = np.meshgrid(x, y, z)  # since d is based in x, use in x position
-        # find wake diameter
+        x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
         d = self._wake_diameter(x)
+        yc, zc = self.centerline(x_glob)
+        yc, zc = yc - self.y, zc - self.z
         du = self._du(x, wake_diameter=d)
-        # calculate gaussian
         gaussian_ = (
-            1 / (8 * self.sigma**2)
-            * np.exp(-((y**2 + z**2) / (2 * self.sigma**2 * d**2)))
+            1
+            / (8 * self.sigma**2)
+            * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
         )
+
+
+        # calculate the centerline
+        # yc, zc = self.centerline(x_glob)
+        # # transform coordinates to be in turbine/wake centerline frame of reference
+        # x = np.array([np.array([x_glob - self.x,]).T,])  # make array of dimension (1, n, 1)
+        # y = np.array([[y_glob - yc,],]).T # make array of dimension (n, 1, 1)
+        # z = np.array([[z_glob - zc,],])  # make array of dimension (1, 1, n)
+ 
+        # # meshgrid with all elements needed to calculate the gaussian. 
+        # # xmesh, ymesh, zmesh = np.meshgrid(x, y, z)  # since d is based in x, use in x position
+        # # find wake diameter
+        # d = self._wake_diameter(x)
+        # du = self._du(x, wake_diameter=d)
+        # # calculate gaussian
+        # gaussian_ = (
+        #     1 / (8 * self.sigma**2)
+        #     * np.exp(-((y**2 + z**2) / (2 * self.sigma**2 * d**2)))
+        # )
         return gaussian_ * du
     
     def niayifar_deficit(self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0) -> ArrayLike:
