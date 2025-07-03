@@ -130,16 +130,26 @@ class GaussianWake(Wake):
         """
         Solves Eq. C1
         """
-        x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
-        d = self._wake_diameter(x)
         yc, zc = self.centerline(x_glob)
-        yc, zc = yc - self.y, zc - self.z
-        du = self._du(x, wake_diameter=d)
+        xmesh, ymesh, zmesh = np.meshgrid(x_glob - self.x, y_glob - yc, z_glob - zc)
+        d = self._wake_diameter(xmesh)
+        du = self._du(xmesh, wake_diameter=d)
+        
         gaussian_ = (
             1
             / (8 * self.sigma**2)
-            * np.exp(-(((y - yc)** 2 + (z - zc)**2) / (2 * self.sigma**2 * d**2)))
+            * np.exp(-(((ymesh)**2 + (zmesh)**2) / (2 * self.sigma**2 * d**2)))
         )
+        # x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
+        # d = self._wake_diameter(x)
+        # yc, zc = self.centerline(x_glob)
+        # yc, zc = yc - self.y, zc - self.z
+        # du = self._du(x, wake_diameter=d)
+        # gaussian_ = (
+        #     1
+        #     / (8 * self.sigma**2)
+        #     * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
+        # )
 
         return gaussian_ * du
     
