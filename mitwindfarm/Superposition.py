@@ -9,6 +9,7 @@ class Superposition(ABC):
     def __call__(self, base_windfield: Windfield, wakes: list[Wake]) -> Windfield:
         ...
 
+
 class Linear(Superposition):
     def __call__(self, base_windfield: Windfield, wakes: list[Wake]) -> Windfield:
         return Superimposed(base_windfield, wakes, method="linear")

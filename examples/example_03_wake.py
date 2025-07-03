@@ -10,30 +10,32 @@ FIGDIR.mkdir(exist_ok=True, parents=True)
 
 
 if __name__ == "__main__":
-    yaw, tilt, Cp, Ct, Ctprime, an, u4, v4, w4, REWS = 0, 0, 0, 0, 0, 0.3, 0.5, 0.0, 0.3, 1.0
+    # create a rotor solution
+    yaw, tilt, Cp, Ct, Ctprime, an, u4, v4, w4, REWS = 0, 0, 0, 0, 0, 0.3, 0.5, 0.1, 0.1, 1.0
     rotor_sol = RotorSolution(yaw, tilt, Cp, Ct, Ctprime, an, u4, v4, w4, REWS)
-
+    # create a wake model
     wake_model = GaussianWakeModel()
     xturb, yturb, zturb = 1, 0, 0
     wake = wake_model(xturb, yturb, zturb, rotor_sol, TIamb=0.1)
-
+    # define grid / turbine index
     npoints = 50
     _x, _y, _z = np.linspace(-1, 10, npoints), np.linspace(-3, 3, npoints), np.linspace(-3, 3, npoints)
     xturb_idx = np.abs(_x - xturb).argmin()
     yturb_idx = np.abs(_y - yturb).argmin()
     zturb_idx = np.abs(_z - zturb).argmin()
-
+    # fine centerline
     y_centerline, z_centerline = wake.centerline(_x)
-
+    # define meshgrids along planes and calculate the deficits
     x_mesh, y_mesh = np.meshgrid(_x, _y)
-    xy_deficit = wake.deficit(x_mesh, y_mesh, zturb)
+    xy_deficit = wake.deficit(x_mesh, y_mesh, zturb) # x-y plane 
 
     x_mesh, z_mesh = np.meshgrid(_x, _z)
-    xz_deficit = wake.deficit(x_mesh, yturb, z_mesh)
+    xz_deficit = wake.deficit(x_mesh, yturb, z_mesh) # x-z plane 
 
     y_mesh, z_mesh = np.meshgrid(_y, _z)
-    yz_deficit = wake.deficit(xturb, y_mesh, z_mesh)
+    yz_deficit = wake.deficit(xturb, y_mesh, z_mesh) # y-z plane 
 
+    # plot the deficits and wake center lines
     fig, (ax0, ax1, ax2) = plt.subplots(1, 3)
     vmin = min(np.min(xy_deficit), np.min(xz_deficit), np.min(yz_deficit))
     vmax = max(np.max(xy_deficit), np.max(xz_deficit), np.max(yz_deficit))

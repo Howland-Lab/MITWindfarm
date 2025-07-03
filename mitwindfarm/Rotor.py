@@ -26,6 +26,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any
 from numpy.typing import ArrayLike
+import warnings
 
 import numpy as np
 from UnifiedMomentumModel.Momentum import Heck, UnifiedMomentum, MomentumSolution
@@ -236,7 +237,7 @@ class BEM(Rotor):
         self.ygrid_loc /= 2
         self.zgrid_loc /= 2
 
-    def __call__(self, x: float, y: float, z: float, windfield: Windfield, pitch, tsr, yaw) -> RotorSolution:
+    def __call__(self, x: float, y: float, z: float, windfield: Windfield, pitch, tsr, yaw, tilt) -> RotorSolution:
         """
         Calculate the rotor solution for given pitch, TSR, and yaw inputs.
 
@@ -248,6 +249,10 @@ class BEM(Rotor):
         Returns:
         RotorSolution: The calculated rotor solution.
         """
+        if tilt != 0:
+            warnings.warn("Non-zero tilt is not yet implemented for BEM. Setting tilt to zero.", UserWarning)
+            tilt = 0
+
         xs_glob = self.xgrid_loc + x
         ys_glob = self.ygrid_loc + y
         zs_glob = self.zgrid_loc + z
@@ -261,14 +266,14 @@ class BEM(Rotor):
         sol: BEMSolution = self._model(pitch, tsr, yaw, Us / REWS, wdir)
         return RotorSolution(
             yaw,
-            0, # no tilt implemented with BEM
+            tilt, # no tilt implemented for BEM
             sol.Cp() * REWS**3,
             sol.Ct() * REWS**2,
             sol.Ctprime(),
             sol.a() * REWS,
             sol.u4 * REWS,
             sol.v4 * REWS,
-            0,  # no tilt implemented for BEM
+            0, # no tilt implemented for BEM so no w4
             REWS,
             TI=RETI,
             extra=sol,
@@ -313,15 +318,18 @@ class CosineRotor(Rotor):
         v4 = - (1/4) * Ct * np.sin(yaw)
         return a, u4, v4
 
-    def __call__(self, x: float, y: float, z: float, windfield: Windfield, yaw) -> RotorSolution:
+    def __call__(self, x: float, y: float, z: float, windfield: Windfield, yaw = 0, tilt = 0) -> RotorSolution:
         """
         Calculate the rotor solution.
 
         Returns:
         RotorSolution: The calculated rotor solution.
         """
+        if tilt != 0:
+            warnings.warn("Non-zero tilt is not yet implemented for Cosine rotors. Setting tilt to zero.", UserWarning)
+            tilt = 0
 
-       # Get the points over rotor to be sampled in windfield
+        # Get the points over rotor to be sampled in windfield
         xs_loc, ys_loc, zs_loc = self.rotor_grid.grid_points()
         xs_glob, ys_glob, zs_glob = xs_loc + x, ys_loc + y, zs_loc + z
 
@@ -348,12 +356,14 @@ class CosineRotor(Rotor):
 
         return RotorSolution(
             yaw,
+            tilt, # no tilt implemented for cosine rotor
             Cp * REWS**3,
             Ct * REWS**2,
             np.nan,
             a * REWS,
             u4 * REWS,
             v4 * REWS,
+            0, # no tilt implemented for cosine rotor so no w4
             REWS,
             TI=RETI,
             extra=None
