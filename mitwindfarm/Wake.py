@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Optional, TYPE_CHECKING
+import warnings
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -130,35 +131,21 @@ class GaussianWake(Wake):
         """
         Solves Eq. C1
         """
-        x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
-        d = self._wake_diameter(x)
+        # calculate the centerline
         yc, zc = self.centerline(x_glob)
-        yc, zc = yc - self.y, zc - self.z
+        # transform coordinates to be in turbine/wake centerline frame of reference
+        x = x_glob - self.x
+        y = y_glob - yc
+        z = z_glob - zc
+        # find wake diameter
+        d = self._wake_diameter(x)
         du = self._du(x, wake_diameter=d)
+        # calculate gaussian
         gaussian_ = (
             1
             / (8 * self.sigma**2)
-            * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
+            * np.exp(-((y** 2 + z**2) / (2 * self.sigma**2 * d**2)))
         )
-
-
-        # calculate the centerline
-        # yc, zc = self.centerline(x_glob)
-        # # transform coordinates to be in turbine/wake centerline frame of reference
-        # x = np.array([np.array([x_glob - self.x,]).T,])  # make array of dimension (1, n, 1)
-        # y = np.array([[y_glob - yc,],]).T # make array of dimension (n, 1, 1)
-        # z = np.array([[z_glob - zc,],])  # make array of dimension (1, 1, n)
- 
-        # # meshgrid with all elements needed to calculate the gaussian. 
-        # # xmesh, ymesh, zmesh = np.meshgrid(x, y, z)  # since d is based in x, use in x position
-        # # find wake diameter
-        # d = self._wake_diameter(x)
-        # du = self._du(x, wake_diameter=d)
-        # # calculate gaussian
-        # gaussian_ = (
-        #     1 / (8 * self.sigma**2)
-        #     * np.exp(-((y**2 + z**2) / (2 * self.sigma**2 * d**2)))
-        # )
         return gaussian_ * du
     
     def niayifar_deficit(self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0) -> ArrayLike:
@@ -166,14 +153,19 @@ class GaussianWake(Wake):
         Solves Eq. C1 where the wake deficit is defined relative to the
         incident rotor wind speed following Niayifar (2016) Energies.
         """
-        x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
+        # calculate the centerline
+        yc, zc = self.centerline(x_glob)
+        # transform coordinates to be in turbine/wake centerline frame of reference
+        x = x_glob - self.x
+        y = y_glob - yc
+        z = z_glob - zc
+        # find wake diameter
         d = self._wake_diameter(x)
-        yc, zc = self.centerline(x_glob) - self.y
         du = 0.5 * (self.rotor_sol.REWS - self.rotor_sol.u4) / d**2 * (1 + erf(x / (np.sqrt(2) / 2)))
+        # calculate gaussian
         gaussian_ = (
-            1
-            / (8 * self.sigma**2)
-            * np.exp(-(((y - yc) ** 2 + (z - zc)**2) / (2 * self.sigma**2 * d**2)))
+            1 / (8 * self.sigma**2)
+            * np.exp(-((y** 2 + z**2) / (2 * self.sigma**2 * d**2)))
         )
        
         return gaussian_ * du
@@ -186,20 +178,20 @@ class GaussianWake(Wake):
         points in space. Laterally smeared with the gaussian twice as wide as
         the wake deficit model. as recommended by Niayifar and Porte-Agel 2016
         """
-        x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
+        # calculate the centerline
+        yc, zc = self.centerline(x_glob)
+        # transform coordinates to be in turbine/wake centerline frame of reference
+        x = x_glob - self.x
+        y = y_glob - yc
+        z = z_glob - zc
+        # find wake diameter
         d = self._wake_diameter(x)
-        yc, zc = self.centerline(x_glob) - self.y
+        # find WATI
         WATI = self.centerline_wake_added_turb(x)
-
+        # calculate gaussian
         _gaussian = (
-            1
-            / (8 * (self.WATI_sigma_multiplier * self.sigma) ** 2)
-            * np.exp(
-                -(
-                    ((y - yc) ** 2 + (z - zc)**2)
-                    / (2 * (self.WATI_sigma_multiplier * self.sigma) ** 2 * d**2)
-                )
-            )
+            1 / (8 * (self.WATI_sigma_multiplier * self.sigma) ** 2)
+            * np.exp(-((y** 2 + z**2) / (2 * (self.WATI_sigma_multiplier * self.sigma)**2 * d**2)))
         )
 
         return _gaussian * np.nan_to_num(WATI)
@@ -209,7 +201,7 @@ class GaussianWake(Wake):
         Returns the deficit at hub height averaged along a lateral line of
         length 1, centered at (x, y).
         """
-
+        warnings.warn("Line deficit is deprecated as it cannot handle a z-offset. Use another deficit function.", DeprecationWarning)
         d = self._wake_diameter(x)
         yc, zc = self.centerline(x)
         du = self._du(x, wake_diameter=d)
