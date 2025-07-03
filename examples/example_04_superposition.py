@@ -18,13 +18,13 @@ FIGDIR.mkdir(exist_ok=True, parents=True)
 
 if __name__ == "__main__":
     layout = Layout([0, 2, 4, 2, 0], [0, 0.5, 1, -2, 2])
-
-    rotor_sols = [
-        RotorSolution(0, 0, 0, 0, 0, 0.5, 0.1, 1.0),
-        RotorSolution(0, 0, 0, 0, 0, 0.5, -0.1, 1.0),
-        RotorSolution(0, 0, 0, 0, 0, 0.5, 0.1, 1.0),
-        RotorSolution(0, 0, 0, 0, 0, 0.5, 0.5, 1.0),
-        RotorSolution(0, 0, 0, 0, 0, 0.8, -0.5, 1.0),
+    yaw, tilt, Cp, Ct, Ctprime, an, w4, REWS = 0, 0, 0, 0, 0, 0.3, 0.0, 1.0
+    rotor_sols = [  # rotor solutions with varying u4 and v4
+        RotorSolution(yaw, tilt, Cp, Ct, Ctprime, an, 0.5, 0.1, w4, REWS),
+        RotorSolution(yaw, tilt, Cp, Ct, Ctprime, an, 0.5, -0.1, w4, REWS),
+        RotorSolution(yaw, tilt, Cp, Ct, Ctprime, an, 0.5, 0.1, w4, REWS),
+        RotorSolution(yaw, tilt, Cp, Ct, Ctprime, an, 0.5, 0.5, w4, REWS),
+        RotorSolution(yaw, tilt, Cp, Ct, Ctprime, an, 0.8, -0.5, w4, REWS),
     ]
     wake_model = GaussianWakeModel()
     wakes = [wake_model(x, y, z, sol) for (x, y, z), sol in zip(layout, rotor_sols)]
@@ -50,7 +50,8 @@ if __name__ == "__main__":
         )
         for wake in wakes:
             __x = _x[_x > wake.x]
-            ax.plot(__x, wake.centerline(__x), ":r", lw=0.5)
+            yc, zc = wake.centerline(__x)
+            ax.plot(__x, yc, ":r", lw=0.5)
 
         ax.set_title(label)
     fig.subplots_adjust(hspace=0.5)
