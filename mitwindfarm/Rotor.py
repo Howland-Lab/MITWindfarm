@@ -195,13 +195,13 @@ class UnifiedAD(Rotor):
         return RotorSolution(
             yaw,
             tilt,
-            sol.Cp[0] * REWS**3,
-            sol.Ct[0] * REWS**2,
+            sol.Cp * REWS**3,
+            sol.Ct * REWS**2,
             sol.Ctprime,
-            sol.an[0] * REWS,
-            sol.u4[0] * REWS,
-            sol.v4[0] * REWS,
-            sol.w4[0] * REWS,
+            sol.an * REWS,
+            sol.u4 * REWS,
+            sol.v4 * REWS,
+            sol.w4 * REWS,
             REWS,
             TI=RETI,
             extra=sol,
@@ -237,7 +237,7 @@ class BEM(Rotor):
         self.ygrid_loc /= 2
         self.zgrid_loc /= 2
 
-    def __call__(self, x: float, y: float, z: float, windfield: Windfield, pitch, tsr, yaw, tilt) -> RotorSolution:
+    def __call__(self, x: float, y: float, z: float, windfield: Windfield, pitch, tsr, yaw = 0, tilt = 0) -> RotorSolution:
         """
         Calculate the rotor solution for given pitch, TSR, and yaw inputs.
 
