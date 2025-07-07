@@ -36,22 +36,25 @@ if __name__ == "__main__":
     yz_deficit = wake.deficit(xturb, y_mesh, z_mesh) # y-z plane 
 
     # plot the deficits and wake center lines
-    fig, (ax0, ax1, ax2) = plt.subplots(1, 3)
+    fig, (ax0, ax1, ax2) = plt.subplots(3, 1)
     vmin = min(np.min(xy_deficit), np.min(xz_deficit), np.min(yz_deficit))
     vmax = max(np.max(xy_deficit), np.max(xz_deficit), np.max(yz_deficit))
     # plot x-y plane
+    ax0.set_title(f"X-Y Plane Wake Deficit at z = {zturb}")
     ax0.imshow(xy_deficit, extent=[_x.min(), _x.max(), _y.min(), _y.max()], origin="lower", vmin = vmin, vmax = vmax)
     ax0.plot(_x, y_centerline, "--r")
     # plot x-z plane
+    ax1.set_title(f"X-Z Plane Wake Deficit at y = {yturb}")
     ax1.imshow(xz_deficit, extent=[_x.min(), _x.max(), _z.min(), _z.max()], origin="lower", vmin = vmin, vmax = vmax)
     ax1.plot(_x, z_centerline, "--r")
     # # plot y-z plane
+    ax2.set_title(f"Y-Z Plane Wake Deficit at x = {xturb}")
     im2 = ax2.imshow(yz_deficit, extent=[_y.min(), _y.max(), _z.min(), _z.max()], origin="lower", vmin = vmin, vmax = vmax)
     # add colorbar
     fig.subplots_adjust(right=0.85)
     cbar_ax = fig.add_axes([0.88, 0.15, 0.04, 0.7])
     fig.colorbar(im2, cax=cbar_ax)
     # adjust subplots
-    fig.subplots_adjust(wspace=0.6)
+    fig.subplots_adjust(hspace=1.0)
     # save figure
     plt.savefig(FIGDIR / "example_03_wake.png", dpi=300, bbox_inches="tight")

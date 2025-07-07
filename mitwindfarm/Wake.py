@@ -127,9 +127,9 @@ class GaussianWake(Wake):
         du = 0.5 * (1 - self.rotor_sol.u4) / d**2 * (1 + erf(x / (np.sqrt(2) / 2)))
         return du
 
-    def deficit(self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0) -> ArrayLike:
+    def _gaussian(self, x_glob, y_glob, z_glob, sigma_multiplier = 1):
         """
-        Solves Eq. C1
+        Solves Eq. C1 in Heck et al. appendix C
         """
         # calculate the centerline
         yc, zc = self.centerline(x_glob)
@@ -139,13 +139,23 @@ class GaussianWake(Wake):
         z = z_glob - zc
         # find wake diameter
         d = self._wake_diameter(x)
-        du = self._du(x, wake_diameter=d)
+        # calculate sigma
+        sigma = self.sigma * sigma_multiplier
         # calculate gaussian
         gaussian_ = (
             1
             / (8 * self.sigma**2)
-            * np.exp(-((y** 2 + z**2) / (2 * self.sigma**2 * d**2)))
+            * np.exp(-((y** 2 + z**2) / (2 * sigma**2 * d**2)))
         )
+        return gaussian_, x, d
+
+
+    def deficit(self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0) -> ArrayLike:
+        """
+        Solves Eq. C1
+        """
+        gaussian_, x, d = self._gaussian(x_glob, y_glob, z_glob)
+        du = self._du(x, wake_diameter=d)
         return gaussian_ * du
     
     def niayifar_deficit(self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0) -> ArrayLike:
@@ -153,21 +163,8 @@ class GaussianWake(Wake):
         Solves Eq. C1 where the wake deficit is defined relative to the
         incident rotor wind speed following Niayifar (2016) Energies.
         """
-        # calculate the centerline
-        yc, zc = self.centerline(x_glob)
-        # transform coordinates to be in turbine/wake centerline frame of reference
-        x = x_glob - self.x
-        y = y_glob - yc
-        z = z_glob - zc
-        # find wake diameter
-        d = self._wake_diameter(x)
+        gaussian_, x, d = self._gaussian(x_glob, y_glob, z_glob)
         du = 0.5 * (self.rotor_sol.REWS - self.rotor_sol.u4) / d**2 * (1 + erf(x / (np.sqrt(2) / 2)))
-        # calculate gaussian
-        gaussian_ = (
-            1 / (8 * self.sigma**2)
-            * np.exp(-((y** 2 + z**2) / (2 * self.sigma**2 * d**2)))
-        )
-       
         return gaussian_ * du
 
     def wake_added_turbulence(
@@ -178,23 +175,9 @@ class GaussianWake(Wake):
         points in space. Laterally smeared with the gaussian twice as wide as
         the wake deficit model. as recommended by Niayifar and Porte-Agel 2016
         """
-        # calculate the centerline
-        yc, zc = self.centerline(x_glob)
-        # transform coordinates to be in turbine/wake centerline frame of reference
-        x = x_glob - self.x
-        y = y_glob - yc
-        z = z_glob - zc
-        # find wake diameter
-        d = self._wake_diameter(x)
-        # find WATI
+        gaussian_, x, _ = self._gaussian(x_glob, y_glob, z_glob, sigma_multiplier = self.WATI_sigma_multiplier)
         WATI = self.centerline_wake_added_turb(x)
-        # calculate gaussian
-        _gaussian = (
-            1 / (8 * (self.WATI_sigma_multiplier * self.sigma) ** 2)
-            * np.exp(-((y** 2 + z**2) / (2 * (self.WATI_sigma_multiplier * self.sigma)**2 * d**2)))
-        )
-
-        return _gaussian * np.nan_to_num(WATI)
+        return gaussian_ * np.nan_to_num(WATI)
 
     def line_deficit(self, x: np.array, y: np.array, z = 0):
         """
