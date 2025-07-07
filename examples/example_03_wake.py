@@ -18,11 +18,8 @@ if __name__ == "__main__":
     xturb, yturb, zturb = 1, 0, 0
     wake = wake_model(xturb, yturb, zturb, rotor_sol, TIamb=0.1)
     # define grid / turbine index
-    npoints = 400
+    npoints = 100
     _x, _y, _z = np.linspace(-1, 10, npoints), np.linspace(-3, 3, npoints), np.linspace(-3, 3, npoints)
-    xturb_idx = np.abs(_x - xturb).argmin()
-    yturb_idx = np.abs(_y - yturb).argmin()
-    zturb_idx = np.abs(_z - zturb).argmin()
     # fine centerline
     y_centerline, z_centerline = wake.centerline(_x)
     # define meshgrids along planes and calculate the deficits
