@@ -127,7 +127,7 @@ class GaussianWake(Wake):
         """
         d = self._wake_diameter(x) if wake_diameter is None else wake_diameter
 
-        du = 0.5 * (1 - self.rotor_sol.u4) / d**2 * (1 + erf(x / (np.sqrt(2) / 2)))
+        du = 0.5 * (1 - (self.rotor_sol.u4 / self.rotor_sol.REWS)) / d**2 * (1 + erf(x / (np.sqrt(2) / 2)))
         return du
 
     def _gaussian(self, x_glob, y_glob, z_glob, sigma_multiplier = 1):
@@ -148,7 +148,7 @@ class GaussianWake(Wake):
         # calculate gaussian
         gaussian_ = (
             1
-            / (8 * self.sigma**2)
+            / (8 * sigma**2) # TODO -> check with og code to see if this 
             * np.exp(-((y** 2 + z**2) / (2 * sigma**2 * d**2)))
         )
         return gaussian_, x, d
