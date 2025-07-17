@@ -25,3 +25,7 @@ class Quadratic(Superposition):
 class Dominant(Superposition):
     def __call__(self, base_windfield: Windfield, wakes: list[Wake]) -> Windfield:
         return Superimposed(base_windfield, wakes, method="dominant")
+
+class NQuadratic(Superposition):
+    def __call__(self, base_windfield: Windfield, wakes: list[Wake]) -> Windfield:
+        return Superimposed(base_windfield, wakes, method="nquadratic")
