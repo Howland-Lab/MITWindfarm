@@ -162,16 +162,6 @@ class GaussianWake(Wake):
         gaussian_, x, d = self._gaussian(x_glob, y_glob, z_glob)
         du = self._du(x, wake_diameter=d)
         return gaussian_ * du
-    
-    def niayifar_deficit(self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0) -> ArrayLike:
-        """
-        Distributes average streamwise velocity deficit using a Gaussian profile centered at the turbine.
-        The wake deficit is defined relative to the incident rotor wind speed following Niayifar (2016) Energies.
-        Eq. C1 in Heck et al 2023 Appendix C / Eq. 3.5 in Shapiro et al 2018.
-        """
-        gaussian_, x, d = self._gaussian(x_glob, y_glob, z_glob)
-        du = 0.5 * (self.rotor_sol.REWS - self.rotor_sol.u4) / d**2 * (1 + erf(x / (np.sqrt(2) / 2)))
-        return gaussian_ * du
 
     def wake_added_turbulence(
         self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0
