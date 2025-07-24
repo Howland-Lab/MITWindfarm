@@ -12,7 +12,7 @@ FIGDIR.mkdir(exist_ok=True, parents=True)
 if __name__ == "__main__":
     # create a rotor solution
     yaw, tilt, Cp, Ct, Ctprime, an, u4, v4, w4, REWS = 0, 0, 0, 0, 0, 0.3, 0.5, 0.2, -0.1, 1.0
-    rotor_sol = RotorSolution(yaw, tilt, Cp, Ct, Ctprime, an, u4, v4, w4, REWS)
+    rotor_sol = RotorSolution(yaw, Cp, Ct, Ctprime, an, u4, v4, REWS, tilt = tilt, w4 = w4)
     # create a wake model
     wake_model = GaussianWakeModel()
     xturb, yturb, zturb = 1, 0, 0

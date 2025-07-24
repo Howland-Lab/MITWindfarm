@@ -41,20 +41,21 @@ class RotorSolution:
     """
     Data class representing the solution of rotor models.
 
-    Note that the values are dimensional - they are the non-dimensional values
-    returned by the rotors, multipled by the needed factor of REWS.
+    Note that non-dimensional values are returned by the rotors and the values are
+    dimensionalized by being multipled by the needed factor of REWS.
     """
 
     yaw: float
-    tilt: float
     Cp: float
     Ct: float
     Ctprime: float
     an: float
     u4: float
     v4: float
-    w4: float
     REWS: float
+    # optional keywords
+    tilt: float = 0
+    w4: float = 0
     TI: float = None
     idx: int = None
     extra: Any = None
@@ -128,15 +129,15 @@ class AD(Rotor):
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
             yaw,
-            tilt,
             sol.Cp * REWS**3,
             sol.Ct * REWS**2,
             sol.Ctprime,
             sol.an * REWS,
             sol.u4 * REWS,
             sol.v4 * REWS,
-            sol.w4 * REWS,
             REWS,
+            tilt = tilt,
+            w4 = sol.w4 * REWS,
             TI=RETI,
             extra=sol,
         )
@@ -194,15 +195,15 @@ class UnifiedAD(Rotor):
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
             yaw,
-            tilt,
             sol.Cp * REWS**3,
             sol.Ct * REWS**2,
             sol.Ctprime,
             sol.an * REWS,
             sol.u4 * REWS,
             sol.v4 * REWS,
-            sol.w4 * REWS,
             REWS,
+            tilt = tilt,
+            w4 = sol.w4 * REWS,
             TI=RETI,
             extra=sol,
         )
@@ -266,14 +267,12 @@ class BEM(Rotor):
         sol: BEMSolution = self._model(pitch, tsr, yaw, Us / REWS, wdir)
         return RotorSolution(
             yaw,
-            tilt, # no tilt implemented for BEM
             sol.Cp() * REWS**3,
             sol.Ct() * REWS**2,
             sol.Ctprime(),
             sol.a() * REWS,
             sol.u4 * REWS,
             sol.v4 * REWS,
-            0, # no tilt implemented for BEM so no w4
             REWS,
             TI=RETI,
             extra=sol,
@@ -356,14 +355,12 @@ class CosineRotor(Rotor):
 
         return RotorSolution(
             yaw,
-            tilt, # no tilt implemented for cosine rotor
             Cp * REWS**3,
             Ct * REWS**2,
             np.nan,
             a * REWS,
             u4 * REWS,
             v4 * REWS,
-            0, # no tilt implemented for cosine rotor so no w4
             REWS,
             TI=RETI,
             extra=None

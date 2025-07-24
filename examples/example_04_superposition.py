@@ -20,11 +20,11 @@ if __name__ == "__main__":
     layout = Layout([0, 2, 4, 2, 0], [0, 0.5, 1, -2, 2])
     yaw, tilt, Cp, Ct, Ctprime, an, w4, REWS = 0, 0, 0, 0, 0, 0.3, 0.0, 1.0
     rotor_sols = [  # rotor solutions with varying u4 and v4
-        RotorSolution(yaw, tilt, Cp, Ct, Ctprime, an, 0.5, 0.1, w4, REWS),
-        RotorSolution(yaw, tilt, Cp, Ct, Ctprime, an, 0.5, -0.1, w4, REWS),
-        RotorSolution(yaw, tilt, Cp, Ct, Ctprime, an, 0.5, 0.1, w4, REWS),
-        RotorSolution(yaw, tilt, Cp, Ct, Ctprime, an, 0.5, 0.5, w4, REWS),
-        RotorSolution(yaw, tilt, Cp, Ct, Ctprime, an, 0.8, -0.5, w4, REWS),
+        RotorSolution(yaw, Cp, Ct, Ctprime, an, 0.5, 0.1, REWS, tilt = tilt, w4 = w4),
+        RotorSolution(yaw, Cp, Ct, Ctprime, an, 0.5, -0.1, REWS, tilt = tilt, w4 = w4),
+        RotorSolution(yaw, Cp, Ct, Ctprime, an, 0.5, 0.1, REWS, tilt = tilt, w4 = w4),
+        RotorSolution(yaw, Cp, Ct, Ctprime, an, 0.5, 0.5, REWS, tilt = tilt, w4 = w4),
+        RotorSolution(yaw, Cp, Ct, Ctprime, an, 0.8, -0.5, REWS, tilt = tilt, w4 = w4),
     ]
     wake_model = GaussianWakeModel()
     wakes = [wake_model(x, y, z, sol) for (x, y, z), sol in zip(layout, rotor_sols)]

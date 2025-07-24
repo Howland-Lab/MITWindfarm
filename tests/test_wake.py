@@ -30,7 +30,7 @@ def test_v4_w4_centerline_wake(grid_info, wake_model, wake_model_args, yturb, zt
     xturb, _x, _y, _z, dx, dy, dz = grid_info
     yaw, tilt, Cp, Ct, Ctprime, an, u4, REWS = wake_model_args
     # create rotor solution and wake
-    rotor_sol = RotorSolution(yaw, tilt, Cp, Ct, Ctprime, an, u4, v4, w4, REWS)
+    rotor_sol = RotorSolution(yaw, Cp, Ct, Ctprime, an, u4, v4, REWS, tilt = tilt, w4 = w4)
     wake = wake_model(xturb, yturb, zturb, rotor_sol)
     y_centerline, z_centerline = wake.centerline(_x)
     # assert that the centerline goes in the same direction as the v4/w4 velocity
