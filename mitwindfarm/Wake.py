@@ -148,7 +148,7 @@ class GaussianWake(Wake):
         # calculate gaussian
         gaussian_ = (
             1
-            / (8 * sigma**2) # TODO -> check with og code to see if this 
+            / (8 * sigma**2)
             * np.exp(-((y** 2 + z**2) / (2 * sigma**2 * d**2)))
         )
         return gaussian_, x, d
