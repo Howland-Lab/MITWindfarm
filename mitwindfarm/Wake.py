@@ -40,6 +40,31 @@ class WakeModel(ABC):
 
 
 class GaussianWake(Wake):
+    """
+    Gaussian wake model using the derivation from Shapiro et al. (2018)
+    with a wake added turbulence model from Crespo and Hernandez (1996).
+
+    The model uses a constant wake spreading rate (kw) and a constant standard
+    deviation (sigma) for the Gaussian profile. 
+
+    __init__: 
+        - Args
+            - sigma: float, standard deviation of the Gaussian profile (default: 0.25)
+            - kw: float, wake spreading rate (default: 0.07)
+            - WATI_sigma_multiplier: float, multiplier for the wake added 
+                turbulence intensity (WATI) sigma (default: 1.0)
+            - xmax: float, maximum x value for the centerline calculation (default: 100.0)
+
+    __call__: function to create a GaussianWake instance called by the wake model solver
+        - Args
+            - x: float, x-coordinate of the turbine
+            - y: float, y-coordinate of the turbine
+            - z: float, z-coordinate of the turbine
+            - rotor_sol: RotorSolution, solution object containing rotor parameters
+            - TIamb: float, ambient turbulence intensity (default: None)
+        - Returns:
+            - GaussianWake instance with the specified parameters.
+    """
     def __init__(
         self,
         x: float,
