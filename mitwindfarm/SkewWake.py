@@ -6,6 +6,7 @@ import numpy as np
 from numpy.typing import ArrayLike
 from typing import Union, Optional, TYPE_CHECKING
 from .Wake import Wake, WakeModel
+from .Windfield import Windfield
 
 if TYPE_CHECKING:
     from .Rotor import RotorSolution
@@ -14,6 +15,20 @@ if TYPE_CHECKING:
 class SkewGaussianWakeModel(WakeModel):
     """
     Defines a skewed Gaussian wake model for the Abkar et al. (2018) wake model.
+
+    Parameters: 
+        ky (float): lateral wake spreading coefficient
+        kz (float, optional): vertical wake spreading coefficient. Defaults to `ky`.
+        WATI_sigma_multiplier (float): multiplier for the wake-added turbulence intensity (WATI)
+        xmax (float): maximum downstream distance for the wake -- UNUSED
+        alpha_in (float or ArrayLike): veer angle in radians,or a 1D array of veer 
+            angles at different heights in the global coordinate system.
+        alpha_z (ArrayLike, optional): if `alpha_in` is an array, this is the heights in the local
+            coordinate system at which the veer angles are defined.
+        base_windfield (Windfield, optional): if provided, overrides `alpha_in` and `alpha_z`.
+
+    Methods: 
+        __call__(x, y, z, rotor_sol, TIamb=None): Creates a Wake object at the given turbine coordinates.
     """
 
     def __init__(
@@ -24,6 +39,7 @@ class SkewGaussianWakeModel(WakeModel):
         xmax: float = 100.0,
         alpha_in: Union[float, ArrayLike] = 0,
         alpha_z: Optional[ArrayLike] = None,
+        base_windfield: Optional["Windfield"] = None, 
     ):
         self.ky = ky
         self.kz = kz if kz is not None else ky
@@ -33,10 +49,13 @@ class SkewGaussianWakeModel(WakeModel):
         # veer parameters:
         self.alpha_in = alpha_in
         self.alpha_z = None
-        if isinstance(self.alpha_in, np.ndarray):
-            if alpha_z is None:
-                raise ValueError("alpha_z must be provided if alpha_in is an array.")
-            self.alpha_z = alpha_z
+        if base_windfield is not None:
+            self.windfield = base_windfield
+        else: 
+            if isinstance(self.alpha_in, np.ndarray):
+                if alpha_z is None:
+                    raise ValueError("alpha_z must be provided if alpha_in is an array.")
+                self.alpha_z = alpha_z
 
     def __call__(
         self, x, y, z, rotor_sol: "RotorSolution", TIamb: float = None
@@ -51,6 +70,7 @@ class SkewGaussianWakeModel(WakeModel):
             kz=self.kz,
             alpha_in=self.alpha_in,
             alpha_z=self.alpha_z,
+            windfield=self.windfield, 
             TIamb=TIamb, 
         )
 
@@ -71,6 +91,7 @@ class SkewGaussianWake(Wake):
         alpha_in: Union[float, ArrayLike, str] = 0,
         alpha_z: Optional[ArrayLike] = None,
         WATI_sigma_multiplier: float = 1.0,
+        windfield: Optional["Windfield"] = None,
         TIamb: Optional[float] = None,
     ):
         self.x, self.y, self.z = x, y, z
@@ -81,7 +102,7 @@ class SkewGaussianWake(Wake):
         self.TIamb = TIamb
 
         # veer parameters: TODO - FORMALIZE THIS 
-        self.windfield = None
+        self.windfield = windfield
         self.alpha_in = alpha_in
         if alpha_in == "rotor":
             self.windfield = rotor_sol.extra[
@@ -98,6 +119,26 @@ class SkewGaussianWake(Wake):
                 else:
                     self.alpha_z = np.asarray(self.alpha_z)
 
+    def wdir(self, z: ArrayLike) -> ArrayLike:
+        """
+        Returns wind direction at height `z` from the windfield, which
+        is defined with respect to the turbine z-location. If no
+        windfield is provided, returns 0 (no veer).
+
+        Parameters
+            z (ArrayLike): height in the local coordinate system
+        """
+        if self.windfield is not None:
+            # transform back to global coordinates
+            return np.clip(
+                self.windfield.wdir(0, 0, z + self.z), np.pi * -0.45, np.pi * 0.45
+            )
+        else:
+            if isinstance(self.alpha_in, np.ndarray):
+                return np.interp(z, self.alpha_z, self.alpha_in)
+            else:
+                return self.alpha_in * z
+
     def deficit(
         self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob: ArrayLike
     ) -> ArrayLike:
@@ -109,13 +150,7 @@ class SkewGaussianWake(Wake):
         sigma_y = self.ky * x + eps
         sigma_z = self.kz * x + eps
 
-        if self.windfield is not None:
-            alpha_in = self.windfield.wdir(z)  # TODO - test this
-        else:
-            if isinstance(self.alpha_in, np.ndarray):
-                alpha_in = np.interp(z, self.alpha_z, self.alpha_in)
-            else:
-                alpha_in = self.alpha_in * z
+        alpha_in = self.wdir(z)  # veer angle at height z
 
         u4 = self.rotor_sol.u4 / self.rotor_sol.REWS
         radical = np.clip(1 - Ct / (8 * sigma_y * sigma_z), 0, None)  # clip to avoid NaN
