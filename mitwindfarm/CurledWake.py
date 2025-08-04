@@ -13,7 +13,7 @@ from warnings import warn
 
 from numpy.typing import ArrayLike
 import numpy as np
-from scipy.signal import convolve2d
+from scipy.ndimage import gaussian_filter
 from scipy.interpolate import interpn, make_interp_spline
 
 from mitwindfarm.Windfield import Windfield
@@ -60,7 +60,8 @@ class CurledWakeWindfield(Windfield):
         zbuff: float = 2,
         N_vortex: int = 10,
         sigma_vortex: float = 0.2,
-        smooth_fact: float = 1,
+        smooth_fact: float = None,
+        use_constant_x0: float = None,
         u_model: str = "default",
         v_model: Literal["analytical", "decay"] = "default",
         w_model: Literal["analytical", "decay"] = "default",
@@ -89,11 +90,13 @@ class CurledWakeWindfield(Windfield):
         - dz: Grid spacing in the z-direction, non-dim (default: 0.1).
         - ybuff: Buffer in the y-direction (default: 3).
         - zbuff: Buffer in the z-direction (default: 2).
-        - smooth_fact: Smoothing factor for the initial condition stencil (default: 1).
+        - smooth_fact: Smoothing factor for the initial condition stencil, normalized
+            to the turbine diameter (default: dy).
         - N_vortex: Number of vortices to use for the dv, dw initial conditions (default: 10).
         - sigma_vortex: radius for the vortex de-singularization (default: 0.2).
         - ic_method: Method for initial condition stamping (default: "du").
             NOTE: "fx" is experimental and only solves for EF marching.
+        - use_constant_x0: Constant near-wake length (default: None, uses x0 from the RotorSolution).
         - u_model: Model for the u-velocity field (default: "default").
         - v_model: Model for the v-velocity field (default: "analytical").
         - w_model: Model for the w-velocity field (default: "analytical").
@@ -105,7 +108,7 @@ class CurledWakeWindfield(Windfield):
         - bottom_wall_z: If True, imposes a wall condition at the given value (default: False).
         - clip_u: Whether to clip the u-velocity to prevent negative values (default: 0.1).
             Set to <= 0 to disable clipping
-        - use_r4: Whether to use the r4 rotor radius for initial conditions (default: True).
+        - use_r4: Whether to use the r4 or rotor radius for initial conditions (default: True).
         - auto_expand: Whether to automatically expand the domain when needed (default: True).
         - verbose: Prints debug information if True (default: False).
         """
@@ -116,6 +119,7 @@ class CurledWakeWindfield(Windfield):
         self.dx, self.dy, self.dz = dx, dy, dz
         self.N_vortex = N_vortex
         self.sigma_vortex = sigma_vortex
+        self.use_constant_x0 = use_constant_x0
 
         if "scipy" not in self.ivp_name:
             self.ivp_kwargs.setdefault("dt", self.dx)
@@ -153,7 +157,7 @@ class CurledWakeWindfield(Windfield):
         self.grid = None  # list of [x, y, z] axes
         self.bottom_wall_z = -np.inf if bottom_wall_z is None else bottom_wall_z
 
-        self.smooth_fact = smooth_fact  # smoothing factor for the IC stencil
+        self.smooth_fact = dy if smooth_fact is None else smooth_fact  # smoothing factor for the IC stencil
         self.turbines = []
 
         self.verbose = verbose
@@ -178,6 +182,26 @@ class CurledWakeWindfield(Windfield):
         wsp = wsp_base + wsp_wakes
         return wsp
 
+    def delta_k(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """Returns the interpolated delta TKE field"""
+        self.march_to(x=x, y=y, z=z)  # check that the forward marching is sufficient
+
+        x = np.asarray(x)
+        y = np.asarray(y)
+        z = np.asarray(z)
+        x, y, z = np.broadcast_arrays(x, y, z)
+
+        k_wake = interpn(
+            (self.x, self.y, self.z),
+            self.dk,
+            (x.ravel(), y.ravel(), z.ravel()),
+            method="linear",
+            bounds_error=False,
+            fill_value=0,
+        ).reshape(x.shape)
+
+        return k_wake
+
     def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         self.march_to(x=x, y=y, z=z)  # check that the forward marching is sufficient
 
@@ -189,14 +213,7 @@ class CurledWakeWindfield(Windfield):
         ti_base = self.base_windfield.TI(x, y, z)
         wsp_base = self.base_windfield.wsp(x, y, z)
 
-        k_wake = interpn(
-            (self.x, self.y, self.z),
-            self.dk,
-            (x.ravel(), y.ravel(), z.ravel()),
-            method="linear",
-            bounds_error=False,
-            fill_value=0,
-        ).reshape(x.shape)
+        k_wake = self.delta_k(x, y, z)
         wsp = self.wsp(x, y, z)
         ti = np.sqrt((wsp_base * ti_base) ** 2 + 2 * k_wake / 3) / wsp
         return ti
@@ -447,8 +464,8 @@ class CurledWakeWindfield(Windfield):
         except IntegrationException as e:
             x = e.partial_t
             ret = e.partial_u
-            if self.verbose:
-                print(f"Exiting integration at x={max(x)}:\n\t", e)
+            raise e
+            print(f"Exiting integration at x={max(x)}:\n\t", e)
         except DomainExpansionRequest as e:
             x, ret = e.partial_t, e.partial_u
             ybnd, zbnd = e.expand_y, e.expand_z
@@ -745,11 +762,6 @@ class DefaultUModel(CurledUModel):
         # d2udy2 = second_der(du, self.curledwake.dy, axis=0)
         # d2udz2 = second_der(du, self.curledwake.dz, axis=1)
         # dudx = (-v * dudy - w * dudz + nu_T * (d2udy2 + d2udz2)) / u
-        # if x > 9 and self.curledwake.bottom_wall_z > -np.inf:
-        #     import matplotlib.pyplot as plt
-        #     plt.pcolormesh(y, z, du.T); plt.gca().set_aspect(1)
-        #     plt.show()
-
         return dudx
 
 
@@ -821,10 +833,10 @@ class MarchedVMdodel(CurledVModel):
         _vars["nu_T"] = nu_T  # update nu_T in shared flow data
         y, z = self.curledwake.grid[1:]
         # ============== du/dx computation ==============
-        dvdy = 0  # np.gradient(dv, y, axis=0)
-        dvdz = 0  # np.gradient(dv, z, axis=1)
-        d2vy = 0  # np.gradient(nu_T * dvdy, y, axis=0)
-        d2vz = 0  # np.gradient(nu_T * dvdz, z, axis=1)
+        dvdy = np.gradient(dv, y, axis=0)
+        dvdz = np.gradient(dv, z, axis=1)
+        d2vy = np.gradient(nu_T * dvdy, y, axis=0)
+        d2vz = np.gradient(nu_T * dvdz, z, axis=1)
         coriolis = -1 / self.Ro * (du)
         dvdx = (-v * dvdy - w * dvdz + coriolis + d2vy + d2vz) / u
         return dvdx
@@ -886,8 +898,19 @@ class DefaultWModel(CurledWModel):
 class CurledTurbulenceModel(Field):
     """
     Base class for the turbulence model in the curled wake model.
-
     Keeps track of all sub-classes with a self-registering factory.
+    All child classes need a `name` class variable to be added to
+    the registry. Additionally, the parameters which may be useful
+    to overwrite include: 
+
+    - self.__init__(curledwake, **kwargs): function
+        Initializes the turbulence model with the curled wake solver
+        and any additional parameters.
+    - self.march_field: bool (optional)
+        whether this model marches in space with a d(k_wake)/dx term. 
+        Default is False
+    - self.nu_T(x): function
+        Returns the eddy viscosity for the turbulence model.
     """
 
     _registry = {}
@@ -895,7 +918,6 @@ class CurledTurbulenceModel(Field):
 
     def __init__(self, curledwake: CurledWakeWindfield):
         self.curledwake = curledwake  # link to the curled wake solver object
-        self.need_reshape = False
         self.march_field = False
 
     def __init_subclass__(cls, **kwargs):
@@ -1042,20 +1064,33 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
         self.check_yz = True
         self.bound_thresh = thresh  # abs threshold for checking bounds
 
+    def _lmix(self, x):
+        """
+        Computes mixing length based on the wake width
+        """
+        # lmix = compute_lmix(vars["du"], self.curledwake.grid[2])
+        lmix = interpolate_lmix(
+            self.curledwake.shared_flow_data["du"], self.curledwake.grid[1]
+        )[:, None]
+        return lmix
+
     def nu_T(self, x):
         """
         Computes Eq. 6 in Klemmer and Howland (2025)
         """
         vars = self.curledwake.shared_flow_data
-        lmix = compute_lmix(vars["du"], self.curledwake.grid[2])
+        lmix = self._lmix(x)
         if np.any(lmix <= 0):
             raise IntegrationException("lmix is non-positive")
 
-        heaviside = get_heaviside(x, self.curledwake.grid[1], self.curledwake.turbines)[
-            :, None
-        ]
+        heaviside = get_heaviside(
+            x,
+            self.curledwake.y,
+            self.curledwake.turbines,
+            use_constant_x0=self.curledwake.use_constant_x0,
+        )[:, None]
         self.nu_T_cached = self.C_nu * (
-            (1 - heaviside) * np.sqrt(np.clip(vars["k"] - vars["dk"], 0, None)) * 1
+            (1 - heaviside) * np.sqrt(vars["k"] - vars["dk"]) * 1
             + heaviside * np.sqrt(np.clip(vars["k"], 0, None)) * lmix
         )
         return self.nu_T_cached
@@ -1069,7 +1104,7 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
         nu_T = self.nu_T_cached
         vars = self.curledwake.shared_flow_data
         u, v, w, du, dk = [vars[name] for name in ["u", "v", "w", "du", "dk"]]
-        lmix = compute_lmix(vars["du"], self.curledwake.grid[2])
+        lmix = self._lmix(x)
         if np.any(lmix <= 0):
             raise IntegrationException("lmix is non-positive")
 
@@ -1156,33 +1191,37 @@ def check_state_bounds(state, thresh=1e-4):
     return expand_y, expand_z
 
 
-def ic_stencil(y, z, yt, zt, smooth_fact=1, ay=0.5, az=None) -> np.ndarray:
+def ic_stencil(y, z, yt, zt, smooth_fact=0.1, ay=0.5, az=None) -> np.ndarray:
     """
-    Stencil for turbine initial condition. This is a 2D Gaussian kernel that is
-    convolved with an indicator function.
+    Stencil using distance transform for smooth circular mask.
 
     Parameters:
-    - y: y-coordinates.
-    - z: z-coordinates.
-    - smooth_fact: Smoothing factor for the initial condition stencil.
-    - ay: Width of the stencil in the y-direction (default: 0.5).
-    - az: Width of the stencil in the z-direction (default: ay).
+    - y: 1D array of y-coordinates, non-dim to D
+    - z: 1D array of z-coordinates, non-dim to D
+    - yt: y-coordinate of the turbine center, non-dim to D
+    - zt: z-coordinate of the turbine center, non-dim to D
+    - smooth_fact: smoothing factor for the mask, non-dim to D (default: 0.1)
+    - ay: y-axis of the elliptical mask, non-dim to D (default: 0.5)
+    - az (optional): z-axis of the elliptical mask, non-dim to D 
+        By default, az is None, which defaults to ay. 
     """
     az = ay if az is None else az
 
     yG, zG = np.meshgrid(y, z, indexing="ij")
     dy = y[1] - y[0]
-    dz = z[1] - z[0]  # assume these are equally spaced axes
-    kernel_y = np.arange(-10, 11)[:, None] * dy
-    kernel_z = np.arange(-10, 11)[None, :] * dz
+    dz = z[1] - z[0]
 
-    # turb = ((yG - yt) ** 2 + (zG - zt) ** 2) < R**2
-    turb = (((yG - yt) / ay) ** 2 + ((zG - zt) / az) ** 2) < 1.0
-    gauss = np.exp(
-        -(kernel_y**2 + kernel_z**2) / (np.sqrt(dy * dz) * smooth_fact) ** 2 / 2
-    )
-    gauss /= np.sum(gauss)  # make sure this is normalized to 1
-    return convolve2d(turb, gauss, "same")
+    # Calculate normalized distance from center
+    dist = np.sqrt(((yG - yt) / ay) ** 2 + ((zG - zt) / az) ** 2)
+
+    # Create smooth mask using tanh transition
+    mask = 0.5 * (1 - np.tanh((dist - 1) / (1e-8 + smooth_fact * 0.1)))
+
+    # Apply Gaussian smoothing if needed
+    sigma_y = smooth_fact / dy  # grid units in y-direction
+    sigma_z = smooth_fact / dz  # grid units in z-direction
+    mask = gaussian_filter(mask, sigma=[sigma_y, sigma_z])
+    return mask
 
 
 def get_wake_bounds_y(du, thresh=0.05, relative=True):
@@ -1308,23 +1347,35 @@ def compute_lmix(du, z, lmix_min=1, thresh=0.05, relative=True):
     return lmix[:, None]
 
 
-def get_heaviside(x, yax, turbines, default_x0=1):
+def get_heaviside(x, yax, turbines, use_constant_x0=None):
     """
     Computes the heaviside function, which is 1 in the far-wake and 0 in the near-wake.
     """
     ret = np.zeros_like(yax)
     for t in turbines:
-        try:
-            x0 = t.rotor_solution.extra.x0
+        if use_constant_x0 is not None:
+            x0 = use_constant_x0
+        else:
+            x0 = (
+                t.rotor_solution.extra.x0
+                if hasattr(t.rotor_solution.extra, "x0")
+                else np.inf
+            )
             if x0 == np.inf:
-                x0 = default_x0
-        except AttributeError:
-            x0 = default_x0
+                raise ValueError(
+                    "Rotor has no `x0` value defined, please provide a value for `use_constant_x0`."
+                )
+        # try:
+        #     x0 = t.rotor_solution.extra.x0
+        #     if x0 == np.inf:
+        #         x0 = default_x0
+        # except AttributeError:
+        #     x0 = default_x0
 
         if x >= t.xt and x < t.xt + x0:
             # yids = (yax >= (t.yt - t.D/2)) & (yax <= (t.yt + t.D/2))
             # ret[yids] = 1
-            ret += np.exp(-((yax - t.yt) ** 2) / 2 / (t.D / 2) ** 2)
+            ret += np.exp(-((yax - t.yt) ** 2) / 2 / (t.D) ** 2)
 
     ret = np.clip(ret, 0, 1)
 
