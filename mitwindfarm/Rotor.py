@@ -152,12 +152,13 @@ class AD(Rotor):
 
 class UnifiedAD(Rotor):
     """
-    Unified Momentum Model rotor with an axial induction factor.
+    Unified Momentum Model rotor.
 
     __init__:
         - Args:
             - rotor_grid (RotorGrid, optional): grid points over the rotor
-            - beta (float, optional): axial induction factor.
+            - beta (float, optional): shear layer growth parameter.
+                Default is 0.1403 (from Liew et al. 2024).
         - Returns:
             - UnifiedAD object
         - Example:
@@ -175,7 +176,7 @@ class UnifiedAD(Rotor):
 
     def __init__(self, rotor_grid: RotorGrid = None, beta=0.1403):
         """
-        Initialize the UnifiedAD rotor model with the given axial induction factor.
+        Initialize the UnifiedAD rotor model.
         See above class documentation on __init__ for more details.
         """
         if rotor_grid is None:
@@ -222,14 +223,30 @@ class UnifiedAD(Rotor):
 class UnifiedAD_TI(UnifiedAD):
     """
     Same as UnifiedAD but also accounts for a possible TI dependence
+
+    Inherits the __call__ function from UnifiedAD. 
+
+    __init__:
+        - Args:
+            - rotor_grid (RotorGrid, optional): grid points over the rotor
+            - beta (float, optional): shear layer growth parameter. Default is 0.1403.
+            - alpha (float, optional): turbulence intensity factor, default: 2.32 
+                This is alpha^* in Bastankhah and Porté-Agel (2016).
+            - couple_x0 (bool, optional): If True, couples the x0 parameter to the
+                pressure solver. Default is False. (Coupling not recommended)
+        - Returns:
+            - UnifiedAD_TI object
+        - Example:
+            >>> rotor_model = UnifiedAD()
+
     """
 
     def __init__(self, rotor_grid=None, beta=0.1403, alpha=2.32, couple_x0=False):
         """
-        Initialize the UnifiedAD rotor model with the given axial induction factor.
+        Initialize the UnifiedAD rotor model given shear layer growth parameters alpha, beta.
 
         Parameters:
-        - beta (float): Axial induction factor (default is 0.1403).
+        - beta (float): shear layer growth parameter (default is 0.1403, from Liew et al. 2024).
         - alpha (float): Turbulence intensity factor (default is 2.32, from Bastankhah and Porté-Agel 2016).
         - couple_x0 (bool): If True, couples the x0 parameter to the pressure equation. Default is False.
         """
@@ -238,46 +255,6 @@ class UnifiedAD_TI(UnifiedAD):
             self._model = UnifiedMomentumTI(beta=beta, alpha=alpha)
         else:
             self._model = UnifiedMomentumTI_x0(beta=beta, alpha=alpha)
-
-    def __call__(
-        self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw
-    ) -> RotorSolution:
-        """
-        Calculate the rotor solution for given Ctprime and yaw inputs.
-
-        Parameters:
-        - Ctprime (float): Thrust coefficient including the effect of yaw.
-        - yaw (float): Yaw angle of the rotor.
-
-        Returns:
-        RotorSolution: The calculated rotor solution.
-        """
-
-        # Get the points over rotor to be sampled in windfield
-        xs_loc, ys_loc, zs_loc = self.rotor_grid.grid_points()
-        xs_glob, ys_glob, zs_glob = xs_loc + x, ys_loc + y, zs_loc + z
-
-        # sample windfield and calculate rotor effective wind speed
-        Us = windfield.wsp(xs_glob, ys_glob, zs_glob)
-        TIs = windfield.TI(xs_glob, ys_glob, zs_glob)
-
-        REWS = self.rotor_grid.average(Us)
-        RETI = np.sqrt(self.rotor_grid.average(TIs**2))
-        sol = self._model(Ctprime, yaw, TI=RETI)
-
-        # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
-        return RotorSolution(
-            yaw,
-            sol.Cp[0] * REWS**3,
-            sol.Ct[0] * REWS**2,
-            sol.Ctprime,
-            sol.an[0] * REWS,
-            sol.u4[0] * REWS,
-            sol.v4[0] * REWS,
-            REWS,
-            TI=RETI,
-            extra=sol,
-        )
 
 
 class BEM(Rotor):
@@ -460,8 +437,23 @@ class CosineRotor(Rotor):
 # Custom momentum models - move to UnifiedMomentum later on
 class UnifiedMomentumTI_x0(UnifiedMomentum):
     """
-    Here, the influence of TI on x0 is decoupled from the
-    other near-wake equations.
+    Here, the influence of TI on x0 is decoupled from the other near-wake equations.
+
+    Inherits __call__, initial_guess, residual, and pre_process from UnifiedMomentum. 
+
+    __init__:
+        - Args:
+            - beta (float, optional): shear layer growth parameter. Default is 0.1403.
+            - alpha (float, optional): turbulence intensity factor. Default is 2.32
+                This is alpha^* in Bastankhah and Porté-Agel (2016).
+            cached (bool, optional): Caches the pressure solver. Default is True.
+            - v4_correction (float, optional): Correction factor for the lateral outlet velocity.
+                Default is 1.0.
+        - Returns:
+            - UnifiedMomentumTI_x0 object
+        - Example:
+            >>> momentum = UnifiedMomentumTI_x0()
+            >>> momentum_sol = momentum(Ctprime, yaw, TI=0.05)
     """
 
     def __init__(
@@ -472,43 +464,55 @@ class UnifiedMomentumTI_x0(UnifiedMomentum):
         )
         self.alpha = alpha
 
-    def initial_guess(self, Ctprime, yaw, TI):
-        return super().initial_guess(Ctprime, yaw)
-
-    def residual(
-        self, x: np.ndarray, Ctprime: float, yaw: float, TI: float = 0
-    ):
-        """
-        Returns the residuals of the Unified Momentum Model for the fixed point
-        iteration. The equations referred to in this function are from the
-        associated paper.
-        """
-        return super().residual(x, Ctprime, yaw)  # TI unused here; decoupled
-
-    def post_process(self, result, Ctprime, yaw, TI):
+    def post_process(self, result, Ctprime, yaw=0, tilt=0, TI=0):
         a, u4, v4, _x0, dp = result.x
         x0 = (
-            np.cos(yaw)
+            np.cos(self.eff_yaw)
             / 4
             * (1 + u4)
-            * np.sqrt((1 - a) * np.cos(yaw) / (1 + u4))
+            * np.sqrt((1 - a) * np.cos(self.eff_yaw) / (1 + u4))
             / (self.beta * np.abs(1 - u4) / 2 + self.alpha * TI)
         )  # re-compute x0 with TI influence decoupled
         result.x = (a, u4, v4, x0, dp)
-        return super().post_process(result, Ctprime, yaw)
+        return super().post_process(result, Ctprime, yaw=yaw, tilt=tilt)
 
 
 class UnifiedMomentumTI(UnifiedMomentum):
     """
     Extends the Unified Momentum Model to include a TI dependence
     as described in Bastankhah and Porté-Agel (2016).
+
+    Here, the influence of TI on x0 is coupled to the other near-wake equations.
+    (not recommended for use)
+
+    __init__:
+        - Args:
+            - beta (float, optional): shear layer growth parameter. Default is 0.1403.
+            - alpha (float, optional): turbulence intensity factor. Default is 2.32
+                This is alpha^* in Bastankhah and Porté-Agel (2016).
+            cached (bool, optional): Caches the pressure solver. Default is True.
+            - v4_correction (float, optional): Correction factor for the lateral outlet velocity.
+                Default is 1.0.
+        - Returns:
+            - UnifiedMomentumTI object
+        - Example:
+            >>> momentum = UnifiedMomentumTI()
+            >>> momentum_sol = momentum(Ctprime, yaw, TI=0.05)
+
+    __call__: 
+        - Args:
+            - Ctprime (float): Thrust coefficient including the effect of yaw and tilt.
+            - yaw (float, optional): Yaw angle of the rotor in radians
+            - tilt (float, optional): Tilt angle of the rotor in radians
+            - TI (float, optional): Turbulence intensity at the rotor location.
+        - Returns: MomentumSolution with calculated Unified Momentum solution based on arguments
+        - Example:
+            >>> momentum = UnifiedMomentumTI()
+            >>> momentum_sol = momentum(Ctprime, yaw=0, TI=0.05)
     """
     def __init__(self, beta=0.1403, alpha=2.32, **kwargs):
         super().__init__(beta=beta, **kwargs)
         self.alpha = alpha
-
-    def initial_guess(self, Ctprime, yaw, TI):
-        return super().initial_guess(Ctprime, yaw)
 
     def residual(
         self, x: np.ndarray, Ctprime: float, yaw: float, TI: float = 0
@@ -522,14 +526,14 @@ class UnifiedMomentumTI(UnifiedMomentum):
         if type(Ctprime) is float and Ctprime == 0:
             return 0 - an, 1 - u4, 0 - v4, 100 - x0, 0 - dp
 
-        p_g = self._nonlinear_pressure(Ctprime, yaw, an, x0)
+        p_g = self._nonlinear_pressure(Ctprime, self.eff_yaw, an, x0)
 
         # Eq. 4 - Near wake length in residual form, includes alpha term.
         e_x0 = (
-            np.cos(yaw)
+            np.cos(self.eff_yaw)
             / 4
             * (1 + u4)
-            * np.sqrt((1 - an) * np.cos(yaw) / (1 + u4))
+            * np.sqrt((1 - an) * np.cos(self.eff_yaw) / (1 + u4))
             / (self.beta * np.abs(1 - u4) / 2 + self.alpha * TI)
         ) - x0
 
@@ -537,18 +541,18 @@ class UnifiedMomentumTI(UnifiedMomentum):
         e_an = (
             1
             - np.sqrt(
-                -dp / (0.5 * Ctprime * np.cos(yaw) ** 2)
-                + (1 - u4**2 - v4**2) / (Ctprime * np.cos(yaw) ** 2)
+                -dp / (0.5 * Ctprime * np.cos(self.eff_yaw) ** 2)
+                + (1 - u4**2 - v4**2) / (Ctprime * np.cos(self.eff_yaw) ** 2)
             )
         ) - an
 
         # Eq. 2 - Streamwise outlet velocity in residual form.
         e_u4 = (
-            -(1 / 4) * Ctprime * (1 - an) * np.cos(yaw) ** 2
+            -(1 / 4) * Ctprime * (1 - an) * np.cos(self.eff_yaw) ** 2
             + (1 / 2)
             + (1 / 2)
             * np.sqrt(
-                (1 / 2 * Ctprime * (1 - an) * np.cos(yaw) ** 2 - 1) ** 2 - (4 * dp)
+                (1 / 2 * Ctprime * (1 - an) * np.cos(self.eff_yaw) ** 2 - 1) ** 2 - (4 * dp)
             )
         ) - u4
 
@@ -558,8 +562,8 @@ class UnifiedMomentumTI(UnifiedMomentum):
             * (1 / 4)
             * Ctprime
             * (1 - an) ** 2
-            * np.sin(yaw)
-            * np.cos(yaw) ** 2
+            * np.sin(self.eff_yaw)
+            * np.cos(self.eff_yaw) ** 2
             - v4
         )
 
@@ -569,7 +573,7 @@ class UnifiedMomentumTI(UnifiedMomentum):
                 -(1 / (2 * np.pi))
                 * Ctprime
                 * (1 - an) ** 2
-                * np.cos(yaw) ** 2
+                * np.cos(self.eff_yaw) ** 2
                 * np.arctan(1 / (2 * x0))
             )
             + p_g
@@ -577,5 +581,5 @@ class UnifiedMomentumTI(UnifiedMomentum):
 
         return e_an, e_u4, e_v4, e_x0, e_dp
 
-    def post_process(self, result, Ctprime, yaw, TI):
+    def post_process(self, result, Ctprime, yaw, TI=None):
         return super().post_process(result, Ctprime, yaw)
