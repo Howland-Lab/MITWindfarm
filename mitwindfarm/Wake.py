@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Optional, TYPE_CHECKING
+import warnings
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -39,6 +40,31 @@ class WakeModel(ABC):
 
 
 class GaussianWake(Wake):
+    """
+    Gaussian wake model using the derivation from Shapiro et al. (2018)
+    with a wake added turbulence model from Crespo and Hernandez (1996).
+
+    The model uses a constant wake spreading rate (kw) and a constant standard
+    deviation (sigma) for the Gaussian profile. 
+
+    __init__: 
+        - Args
+            - sigma: float, standard deviation of the Gaussian profile (default: 0.25)
+            - kw: float, wake spreading rate (default: 0.07)
+            - WATI_sigma_multiplier: float, multiplier for the wake added 
+                turbulence intensity (WATI) sigma (default: 1.0)
+            - xmax: float, maximum x value for the centerline calculation (default: 100.0)
+
+    __call__: function to create a GaussianWake instance called by the wake model solver
+        - Args
+            - x: float, x-coordinate of the turbine
+            - y: float, y-coordinate of the turbine
+            - z: float, z-coordinate of the turbine
+            - rotor_sol: RotorSolution, solution object containing rotor parameters
+            - TIamb: float, ambient turbulence intensity (default: None)
+        - Returns:
+            - GaussianWake instance with the specified parameters.
+    """
     def __init__(
         self,
         x: float,
@@ -59,33 +85,36 @@ class GaussianWake(Wake):
         self.TIamb = TIamb or 0.0
 
         # precompute centerline far downstream
-        self.x_centerline, self.y_centerline = self._centerline(xmax, dx)
+        self.x_centerline, self.yz_centerline = self._centerline(xmax, dx)
 
     def __repr__(self):
         return f"GaussianWake(x={self.x}, y={self.y}, z={self.z}, sigma={self.sigma}, kw={self.kw})"
 
     def _centerline(self, xmax: float, dx: float = 0.05) -> ArrayLike:
         """
-        Solves Eq. C4. Returns centerline y position in global coordinates.
+        Returns centerline y/z position in global coordinates without constant v4/w4 factor.
+        Eqs. C3 and C4 in Heck et al 2023 Appendix C / Eqs. 3.8-3.9 in Shapiro et al 2018.
         """
-
         _x = np.arange(0, max(xmax, 2 * dx), dx)
         d = self._wake_diameter(_x)
+        # v and w deficit values at _x, without constant factors of v4 and w4 (see equation C3)
+        dvw = -0.5 / d**2 * (1 + erf(_x / (np.sqrt(2) / 2)))
+        # y and z centerline without  without constant factors of v4 and w4 (see integration in C4)
+        _yzc = cumulative_trapezoid(-dvw, dx=dx, initial=0)
 
-        dv = -0.5 / d**2 * (1 + erf(_x / (np.sqrt(2) / 2)))
-        _yc = cumulative_trapezoid(-dv, dx=dx, initial=0)
-
-        return _x, _yc
+        return _x, _yzc
 
     def centerline(self, x_glob: ArrayLike) -> ArrayLike:
         """
-        Solves Eq. C4. Returns centerline y position in global coordinates.
+        Returns centerline y position in global coordinates - scales and translates the results of the `_centerline` function.
+        Eq. C4. in Heck et al 2023 Appendix C / Eq. 3.9 in Shapiro et al 2018.
         """
         x = x_glob - self.x
-
-        yc_temp = np.interp(x, self.x_centerline, self.y_centerline, left=0)
-
-        return yc_temp * self.rotor_sol.v4 + self.y
+        yzc_temp = np.interp(x, self.x_centerline, self.yz_centerline, left=0)
+        # scale and translate centerlines
+        yc = yzc_temp * self.rotor_sol.v4 + self.y
+        zc = yzc_temp * self.rotor_sol.w4 + self.z
+        return yc, zc
 
     def centerline_wake_added_turb(self, x: ArrayLike) -> ArrayLike:
         """
@@ -109,50 +138,54 @@ class GaussianWake(Wake):
 
     def _wake_diameter(self, x: ArrayLike) -> ArrayLike:
         """
-        Solves the normalized far-wake diameter (between C1 and C2)
+        Solves the normalized far-wake diameter. Note that this is non-dimensionalized by D and x is actually x/D.
+        Defined in text between Eq. C1 and C2 in Heck et al 2023 Appendix C / in text between Eq. 3.4-3.5 in Shapiro et al 2018.
+
+        Note that this is non-dimensionalized by D and x is actually x/D.
         """
         return 1 + self.kw * np.log(1 + np.exp(2 * (x - 1)))
 
     def _du(self, x: ArrayLike, wake_diameter: Optional[float] = None) -> ArrayLike:
         """
-        Solves Eq. C2
+        Calcualtes the streamwise velocity deficit.
+        Eq. C2. in Heck et al 2023 Appendix C / Eq. 3.7 in Shapiro et al 2018.
         """
         d = self._wake_diameter(x) if wake_diameter is None else wake_diameter
 
-        du = 0.5 * (1 - self.rotor_sol.u4) / d**2 * (1 + erf(x / (np.sqrt(2) / 2)))
+        du = 0.5 * (1 - (self.rotor_sol.u4 / self.rotor_sol.REWS)) / d**2 * (1 + erf(x / (np.sqrt(2) / 2)))
         return du
+
+    def _gaussian(self, x_glob, y_glob, z_glob, sigma_multiplier = 1):
+        """
+        Defines a Gaussian profile centered at the turbine.
+        Gaussian portion of Eq. C1 in Heck et al 2023 Appendix C / Eq. 3.5 in Shapiro et al 2018 (without streamwise velocity deficit multiplier).
+        """
+        # calculate the centerline
+        yc, zc = self.centerline(x_glob)
+        # transform coordinates to be in turbine/wake centerline frame of reference
+        x = x_glob - self.x
+        y = y_glob - yc
+        z = z_glob - zc
+        # find wake diameter
+        d = self._wake_diameter(x)
+        # calculate sigma
+        sigma = self.sigma * sigma_multiplier
+        # calculate gaussian
+        gaussian_ = (
+            1
+            / (8 * sigma**2)
+            * np.exp(-((y** 2 + z**2) / (2 * sigma**2 * d**2)))
+        )
+        return gaussian_, x, d
+
 
     def deficit(self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0) -> ArrayLike:
         """
-        Solves Eq. C1
+        Distributes average streamwise velocity deficit using a Gaussian profile centered at the turbine.
+        Eq. C1 in Heck et al 2023 Appendix C / Eq. 3.5 in Shapiro et al 2018.
         """
-        x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
-        d = self._wake_diameter(x)
-        yc = self.centerline(x_glob) - self.y
+        gaussian_, x, d = self._gaussian(x_glob, y_glob, z_glob)
         du = self._du(x, wake_diameter=d)
-        gaussian_ = (
-            1
-            / (8 * self.sigma**2)
-            * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
-        )
-
-        return gaussian_ * du
-    
-    def niayifar_deficit(self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0) -> ArrayLike:
-        """
-        Solves Eq. C1 where the wake deficit is defined relative to the
-        incident rotor wind speed following Niayifar (2016) Energies.
-        """
-        x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
-        d = self._wake_diameter(x)
-        yc = self.centerline(x_glob) - self.y
-        du = 0.5 * (self.rotor_sol.REWS - self.rotor_sol.u4) / d**2 * (1 + erf(x / (np.sqrt(2) / 2)))
-        gaussian_ = (
-            1
-            / (8 * self.sigma**2)
-            * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
-        )
-       
         return gaussian_ * du
 
     def wake_added_turbulence(
@@ -163,32 +196,18 @@ class GaussianWake(Wake):
         points in space. Laterally smeared with the gaussian twice as wide as
         the wake deficit model. as recommended by Niayifar and Porte-Agel 2016
         """
-        x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
-        d = self._wake_diameter(x)
-        yc = self.centerline(x_glob) - self.y
+        gaussian_, x, _ = self._gaussian(x_glob, y_glob, z_glob, sigma_multiplier = self.WATI_sigma_multiplier)
         WATI = self.centerline_wake_added_turb(x)
+        return gaussian_ * np.nan_to_num(WATI)
 
-        _gaussian = (
-            1
-            / (8 * (self.WATI_sigma_multiplier * self.sigma) ** 2)
-            * np.exp(
-                -(
-                    ((y - yc) ** 2 + z**2)
-                    / (2 * (self.WATI_sigma_multiplier * self.sigma) ** 2 * d**2)
-                )
-            )
-        )
-
-        return _gaussian * np.nan_to_num(WATI)
-
-    def line_deficit(self, x: np.array, y: np.array):
+    def line_deficit(self, x: np.array, y: np.array, z = 0):
         """
         Returns the deficit at hub height averaged along a lateral line of
         length 1, centered at (x, y).
         """
-
+        warnings.warn("Line deficit is deprecated as it cannot handle a z-offset. Use another deficit function.", DeprecationWarning)
         d = self._wake_diameter(x)
-        yc = self.centerline(x)
+        yc, zc = self.centerline(x)
         du = self._du(x, wake_diameter=d)
 
         erf_plus = erf((y + 0.5 - yc) / (np.sqrt(2) * self.sigma * d))
