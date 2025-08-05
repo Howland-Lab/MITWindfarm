@@ -1029,7 +1029,10 @@ class CurledTurbulenceModel_2021(CurledTurbulenceModel):
             self.curledwake.grid[1], self.curledwake.grid[2], indexing="ij"
         )
         U = self.curledwake.base_windfield.wsp(x, yg, zg)
-        dUdz = np.gradient(U, self.curledwake.dz, axis=-1)
+        if np.isscalar(U): 
+            dUdz = 0  # no gradient if U is scalar-valued
+        else: 
+            dUdz = np.gradient(U, self.curledwake.dz, axis=-1)
         lmix = self.kappa * zg / (1 + self.kappa * zg / self.lam)
         lmix = np.clip(lmix, 1e-2, None)  # mixing length must be non-negative
 
