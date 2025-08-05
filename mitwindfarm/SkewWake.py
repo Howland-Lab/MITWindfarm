@@ -52,6 +52,7 @@ class SkewGaussianWakeModel(WakeModel):
         if base_windfield is not None:
             self.windfield = base_windfield
         else: 
+            self.windfield = None
             if isinstance(self.alpha_in, np.ndarray):
                 if alpha_z is None:
                     raise ValueError("alpha_z must be provided if alpha_in is an array.")
@@ -211,7 +212,7 @@ class SkewGaussianWake(Wake):
         sigma_z = self.kz * x + eps
 
         if self.windfield is not None:
-            alpha_in = self.windfield.wdir(z)
+            alpha_in = self.windfield.wdir(x, y, z)
         else:
             if isinstance(self.alpha_in, np.ndarray):
                 alpha_in = np.interp(z, self.alpha_z, self.alpha_in)
