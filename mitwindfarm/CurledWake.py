@@ -73,7 +73,7 @@ class CurledWakeWindfield(Windfield):
         ic_method: Literal["du", "fx"] = "du",
         bottom_wall_z: Union[float, bool] = None,
         clip_u: float = 0.1,
-        use_r4: bool = True,
+        use_r4: bool = False,
         auto_expand: bool = True,
         verbose: bool = False,
     ):
@@ -164,10 +164,6 @@ class CurledWakeWindfield(Windfield):
 
     def wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         self.march_to(x=x, y=y, z=z)  # check that the forward marching is sufficient
-
-        x = np.asarray(x)
-        y = np.asarray(y)
-        z = np.asarray(z)
         x, y, z = np.broadcast_arrays(x, y, z)
 
         wsp_base = self.base_windfield.wsp(x, y, z)
@@ -185,10 +181,6 @@ class CurledWakeWindfield(Windfield):
     def delta_k(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """Returns the interpolated delta TKE field"""
         self.march_to(x=x, y=y, z=z)  # check that the forward marching is sufficient
-
-        x = np.asarray(x)
-        y = np.asarray(y)
-        z = np.asarray(z)
         x, y, z = np.broadcast_arrays(x, y, z)
 
         k_wake = interpn(
@@ -204,10 +196,6 @@ class CurledWakeWindfield(Windfield):
 
     def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         self.march_to(x=x, y=y, z=z)  # check that the forward marching is sufficient
-
-        x = np.asarray(x)
-        y = np.asarray(y)
-        z = np.asarray(z)
         x, y, z = np.broadcast_arrays(x, y, z)
 
         ti_base = self.base_windfield.TI(x, y, z)
@@ -448,7 +436,8 @@ class CurledWakeWindfield(Windfield):
             vars["u"] = vars["du"] + wsp * np.cos(wdir)
             vars["v"] = vars["dv"] + wsp * np.sin(wdir)
             vars["w"] = vars["dw"] + 0
-            vars["k"] = vars["dk"] + kb
+            vars["kb"] = kb
+            vars["k"] = vars["dk"] + vars["kb"]
 
             if (self.clip_u > 0) and np.any(vars["u"] < self.clip_u):
                 vars["u"] = np.clip(vars["u"], self.clip_u, None)
@@ -514,7 +503,7 @@ class CurledWakeWindfield(Windfield):
         Impose wall boundary conditions on fields:
         du/dz = 0; dv/dz = 0; dk/dz = 0; w=0 at the wall.
         """
-        if self.bottom_wall_z > -np.inf:
+        if self.bottom_wall_z > -np.inf and self.bottom_wall_z > np.min(self.z):
             # update boundary conditions with symmetry and anti-symmetry conditions
             zid = np.argmin(np.abs(self.z - self.bottom_wall_z))  # zid at the wall
             ghost_id = zid - 1  # ghost point below the wall
@@ -1093,7 +1082,7 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
             use_constant_x0=self.curledwake.use_constant_x0,
         )[:, None]
         self.nu_T_cached = self.C_nu * (
-            (1 - heaviside) * np.sqrt(vars["k"] - vars["dk"]) * 1
+            (1 - heaviside) * np.sqrt(vars["kb"]) * 1
             + heaviside * np.sqrt(np.clip(vars["k"], 0, None)) * lmix
         )
         return self.nu_T_cached
