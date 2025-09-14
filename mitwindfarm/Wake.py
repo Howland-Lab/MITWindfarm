@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Optional, TYPE_CHECKING
+import warnings
 
 import numpy as np
 from numpy.typing import ArrayLike
@@ -45,12 +46,12 @@ class JensenWake(Wake):
         y: y-position of rotor in global coordinate frame
         z: z-position of rotor in global coordinate frame
         rotor_sol: Rotor solution
-        sigma: Proportionality constant for wake diameter used in Gaussian and thus expected,
-        even though Jensen doesn't require a sigma 
+        sigma: Proportionality constant for wake diameter used in Gaussian
         kw: Constant coefficient for wake growth
         xmax: Maximum x value evaluated
         dx: Interval of x values evaluated
         TIamb: Ambient turbulence intensity
+
     """
     def __init__(
         self,
@@ -72,14 +73,17 @@ class JensenWake(Wake):
         self.dx = dx
 
         # Precompute centerline far downstream
-        self.x_centerline, self.y_centerline = self._centerline(xmax, dx)
+        self.x_centerline, self.y_centerline, self.z_centerline = self._centerline(xmax, dx)
 
     def deficit(self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob = 0) -> ArrayLike:
         
         # Into rotor coordinate frame
-        x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
-        yc = self.centerline(x_glob) - self.y
-        r = np.sqrt((y - yc) ** 2 + z ** 2)
+        x = np.float64(x_glob - self.x)
+        y = np.float64(y_glob - self.y)
+        z = np.float64(z_glob - self.z)
+        yc = self.centerline(x_glob)[0] - self.y
+        zc = self.centerline(x_glob)[1] - self.z
+        r = np.sqrt((y - yc) ** 2 + (z - zc) ** 2)
 
         # Calculate wake diameter for each streamwise coordinate
         d = self._wake_diameter(x)
@@ -87,15 +91,28 @@ class JensenWake(Wake):
         # Calculate du for each streamwise coordinate
         du = self._du(x, wake_diameter = d)
 
-        # Set deficit to be only inside cone of rotor
-        deficit = np.zeros(np.shape(y))
+        # Set deficit to be only inside wake region
+        # Handle x is a constant
+        if np.shape(x) == ():
+            deficit = np.zeros(np.shape(y))
 
-        for ii, _ in np.ndenumerate(deficit):
-            if (np.sqrt(r[ii] ** 2) <= 1/2*d[ii]) and (x[ii] >= 0):
-                deficit[ii] = du[ii]
-            else:
-                # Outside of wake, there is no deficit (velocity is the same as u_inf)
-                deficit[ii] = 0
+            for ii, _ in np.ndenumerate(deficit):
+                if (np.sqrt(r[ii] ** 2) <= 1/2*d) and (x >= 0):
+                    deficit[ii] = du
+                else:
+                    # Outside of wake, there is no deficit (velocity is the same as u_inf)
+                    deficit[ii] = 0
+
+        # Handle x is an array
+        else:
+            deficit = np.zeros(np.shape(x))
+
+            for ii, _ in np.ndenumerate(deficit):
+                if (np.sqrt(r[ii] ** 2) <= 1/2*d[ii]) and (x[ii] >= 0):
+                    deficit[ii] = du[ii]
+                else:
+                    # Outside of wake, there is no deficit (velocity is the same as u_inf)
+                    deficit[ii] = 0
 
         return deficit
 
@@ -130,39 +147,48 @@ class JensenWake(Wake):
         """
         x = x_glob - self.x
 
+        # Interpolate previously computed centerlines
         yc_temp = np.interp(x, self.x_centerline, self.y_centerline, left=0)
+        zc_temp = np.interp(x, self.x_centerline, self.z_centerline, left=0)
 
-        return yc_temp * self.rotor_sol.v4 / self.rotor_sol.REWS + self.y
+        # Translate centerlines into global coordinates
+        yc = yc_temp + self.y
+        zc = zc_temp + self.z
+
+        return yc, zc
     
     def _centerline(self, xmax: float, dx: float = 0.05) -> ArrayLike:
         """
+        Returns centerline y and z position in rotor coordinates. 
+
         Based on principle from Shapiro, Gayme, and Meneveau, 2018, the 
-        transverse velocity wake recovery should mirror the axial velocity 
+        transverse velocity wake recovery should parallel the axial velocity 
         wake recovery. The centerline y position in global coordinates is 
         then computed numerically using the transverse velocity deficit,
-        based on Equation 9 in Shapiro, Gayme, and Meneveau, 2018.
+        based on Equation 3.9 in Shapiro, Gayme, and Meneveau, 2018.
         """
 
         _x = np.arange(0, max(xmax, 2 * dx), dx)
         d = self._wake_diameter(_x)
 
-        # Handle d = 0 -> centerline is self.y when d = 0
+        # Compute centerline y position when d != 0
         d_mask = d > 0
         dv = np.zeros(np.shape(d))
-
-        dv[d_mask] = (1 - self.rotor_sol.v4 / self.rotor_sol.REWS) / d[d_mask]**2
+        dv[d_mask] = (- self.rotor_sol.v4 / self.rotor_sol.REWS) / d[d_mask]**2
         _yc = cumulative_trapezoid(-dv, dx=dx, initial=0)
 
-        _yc[d < 0] = self.y
+        # Compute centerline z position when d != 0
+        dw = np.zeros(np.shape(d))
+        dw[d_mask] = (- self.rotor_sol.w4 / self.rotor_sol.REWS) / d[d_mask]**2
+        _zc = cumulative_trapezoid(-dw, dx=dx, initial=0)
 
-        return _x, _yc
+        return _x, _yc, _zc
 
     def niayifar_deficit(self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob = 0) -> ArrayLike:
         
         # Calculate deficit
         deficit = self.deficit(x_glob, y_glob, z_glob)
 
-        # Multiply by REWS to get Niayifar deficit
         return self.rotor_sol.REWS * deficit
 
 
@@ -201,18 +227,6 @@ class JensenWakeModel(WakeModel):
         
 
 class TurbOParkWake(Wake):
-    """
-    Attributes:
-        x: x-position of rotor in global coordinate frame
-        y: y-position of rotor in global coordinate frame
-        z: z-position of rotor in global coordinate frame
-        rotor_sol: Rotor solution
-        TIamb: Ambient turbulence intensity
-        A: Wake expansion calibration parameter 
-        c_1, c_2: Empirically estimated constants in wake-added turbulence intensity
-        xmax: Maximum x value evaluated
-        dx: Interval of x values evaluated
-    """
     def __init__(
         self,
         x: float,
@@ -220,7 +234,7 @@ class TurbOParkWake(Wake):
         z: float,
         rotor_sol: "RotorSolution",
         TIamb: float = 0.1,
-        A: float = 0.04,
+        WATI_Iw_multiplier: float = 0.04,
         c_1: float = 1.5,
         c_2: float = 0.8,
         xmax: float = 100.0,
@@ -229,23 +243,21 @@ class TurbOParkWake(Wake):
         self.x, self.y, self.z = x, y, z
         self.rotor_sol = rotor_sol
         self.TIamb = TIamb
-        self.A = A
+        self.WATI_Iw_multiplier = WATI_Iw_multiplier
         self.c_1 = c_1
         self.c_2 = c_2
-
-        # Precompute centerline far downstream
-        self.x_centerline, self.y_centerline = self._centerline(xmax, dx)
 
     def deficit(self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob = 0):
         """
         Solves Eq. 6 in Pedersen et al. 2022 for wake deficit profile
         """
 
-        x = x_glob - self.x
-        y = y_glob - self.y
-        z = z_glob - self.z
-        yc = self.centerline(x_glob) - self.y
-        r = np.sqrt((y - yc) ** 2 + z ** 2) 
+        x = np.float64(x_glob - self.x)
+        y = np.float64(y_glob - self.y)
+        z = np.float64(z_glob - self.z)
+        yc = self.centerline(x_glob)[0] - self.y
+        zc = self.centerline(x_glob)[1] - self.z
+        r = np.sqrt((y - yc) ** 2 + (z - zc) ** 2) 
 
         sigma = self._char_wake_diameter(x)
 
@@ -258,14 +270,30 @@ class TurbOParkWake(Wake):
 
         comb_mask = x_mask & sigma_mask
 
-        gaussian = np.zeros(np.shape(sigma))
-        du = np.zeros(np.shape(sigma))
-
-        du[comb_mask] = self._du(x[comb_mask], sigma[comb_mask])
-
         # Gaussian deficit formulation proposed by Bastankhah and Porte-Agel
-        gaussian[comb_mask] = np.exp(- r[comb_mask] ** 2 /
-                          (2 * sigma[comb_mask] ** 2))
+        # Handle x is a constant 
+        if np.shape(x) == () and comb_mask:
+            
+            # Initialize Gaussian profile and peak deficit
+            gaussian = np.zeros(np.shape(y))
+            du = np.zeros(np.shape(x))
+
+            du = self._du(x, sigma[comb_mask])
+
+            gaussian[comb_mask] = np.exp(- r[comb_mask] ** 2 /
+                            (2 * sigma[comb_mask] ** 2))
+
+        # Handle x is an array
+        else:
+            
+            # Initialize Gaussian profile and peak deficit
+            gaussian = np.zeros(np.shape(x))
+            du = np.zeros(np.shape(x))
+
+            du[comb_mask] = self._du(x[comb_mask], sigma[comb_mask])
+
+            gaussian[comb_mask] = np.exp(- r[comb_mask] ** 2 /
+                            (2 * sigma[comb_mask] ** 2))
 
         return gaussian * du
 
@@ -275,32 +303,10 @@ class TurbOParkWake(Wake):
         for use in Niayifar superposition method
         """
 
-        x = x_glob - self.x
-        y = y_glob - self.y
-        z = z_glob - self.z
-        yc = self.centerline(x_glob) - self.y
-        r = np.sqrt((y - yc) ** 2 + z ** 2) 
+        # Calculate deficit
+        deficit = self.deficit(x_glob, y_glob, z_glob)
 
-        sigma = self._char_wake_diameter(x)
-
-        # Only compute behind rotor (x > 0)
-        x_mask = x > 0
-
-        # Handle sigma = 0, as this gives 0 in denominator of gaussian's exponent
-        # -> gaussian, du, C = 0 when sigma = 0
-        sigma_mask = sigma > 0
-        comb_mask = x_mask & sigma_mask
-
-        gaussian = np.zeros(np.shape(sigma))
-        du = np.zeros(np.shape(sigma))
-
-        du[comb_mask] = self._du(x[comb_mask], sigma[comb_mask])
-
-        # Gaussian deficit formulation proposed by Bastankhah and Porte-Agel
-        gaussian[comb_mask] = np.exp(- r[comb_mask] ** 2 /
-                          (2 * sigma[comb_mask] ** 2))
-
-        return gaussian * du * self.rotor_sol.REWS
+        return self.rotor_sol.REWS * deficit
 
     def _centerline_wake_added_turb(self, x: ArrayLike):
         """
@@ -351,11 +357,11 @@ class TurbOParkWake(Wake):
 
         sigma = np.zeros(np.shape(x))
 
-        sigma[comb_mask] = epsilon + self.A * self.TIamb / beta * (
-            np.sqrt((alpha + beta * x[comb_mask]) ** 2 + 1)
-            - np.sqrt(1 + alpha ** 2)
-            - np.log(log_expr[comb_mask])
-        )
+        sigma[comb_mask] = epsilon + self.WATI_Iw_multiplier * self.TIamb / beta * (
+                np.sqrt((alpha + beta * x[comb_mask]) ** 2 + 1)
+                - np.sqrt(1 + alpha ** 2)
+                - np.log(log_expr[comb_mask])
+            )
 
         return sigma
 
@@ -418,11 +424,12 @@ class TurbOParkWake(Wake):
     ) -> ArrayLike:
         """
         Returns wake added turbulence intensity caused by a wake at particular
-        points in space. Laterally smeared with the Gaussian twice as wide as
+        points in space. Laterally smeared with the gaussian twice as wide as
         the wake deficit model. As recommended by Niayifar and Porte-Agel 2016
         """
         x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
-        yc = self.centerline(x_glob) - self.y
+        yc = self.centerline(x_glob)[0] - self.y
+        zc = self.centerline(x_glob)[1] - self.z
 
         # Only compute behind rotor (x > 0)
         x_mask = x > 0
@@ -445,80 +452,37 @@ class TurbOParkWake(Wake):
 
         _gaussian[comb_mask] = (
             1
-            / (8 * (self.A * sigma[comb_mask]) ** 2)
+            / (8 * (self.WATI_Iw_multiplier * sigma[comb_mask]) ** 2)
             * np.exp(
-                -(
-                    ((y[comb_mask] - yc[comb_mask]) ** 2 + z[comb_mask]**2)
-                    / (2 * (self.A * sigma[comb_mask]) ** 2 * d[comb_mask]**2)
+                -(((y[comb_mask] - yc[comb_mask]) ** 2 + (z[comb_mask] - zc[comb_mask])**2)
+                    / (2 * (self.WATI_Iw_multiplier * sigma[comb_mask]) ** 2 * d[comb_mask]**2)
                 )
             )
         )
 
         return _gaussian * np.nan_to_num(WATI)
 
-        # TODO: Not exactly what is given in TurbOPark, 
-        # Check if same model by Niayifar and Porte Agel applicable
-
-    def _centerline(self, xmax: float, dx: float = 0.05) -> ArrayLike:
-        """
-        Based on principle from Shapiro, Gayme, and Meneveau, 2018, the 
-        transverse velocity wake recovery should mirror the axial velocity 
-        wake recovery. The centerline y position in global coordinates is 
-        then computed numerically using the transverse velocity deficit,
-        based on Equation 9 in Shapiro, Gayme, and Meneveau, 2018.
-        """
-
-        _x = np.arange(0, max(xmax, 2 * dx), dx)
-        sigma = self._char_wake_diameter(_x)
-
-        # Only compute behind rotor (x > 0)
-        x_mask = _x > 0
-
-        # Handle sigma = 0 nonphysical (there can't be a deficit without a char_wake_diameter)
-        # -> du = 0 when sigma <= 0
-        sigma_mask = sigma > 0
-
-        # Handle sqrt does not exist -> du does not exist when sqrt does not exist
-        sqrt_expr = np.zeros(np.shape(sigma))
-        sqrt_expr[sigma_mask] = 1 - (self.rotor_sol.Ct / self.rotor_sol.REWS ** 2) / (8 * sigma[sigma_mask] ** 2)
-        sqrt_mask = sqrt_expr >= 0
-
-        comb_mask = x_mask & sigma_mask & sqrt_mask
-        
-        dv = np.zeros(np.shape(sigma))
-
-        dv[comb_mask] = 1 - np.sqrt(sqrt_expr[comb_mask])
-        _yc = cumulative_trapezoid(-dv, dx=dx, initial=0)
-
-        _yc[sigma < 0] = self.y
-
-        return _x, _yc
+        # [***FLAG***] Is this same model by Niayifar and Porte Agel applicable for TurbOPark?
 
     def centerline(self, x_glob: ArrayLike) -> ArrayLike:
         """
-        Interpolates Eq. 6 from Shapiro, Gayme, and Meneveau, 2018 (same as for 
-        GaussianWake) for centerline y position in global coordinates        
+        No wake deflection implemented for TurbOPark wake model, as
+        Shapiro et al. 2018 method is likely to overpredict deflection        
         """
+
         x = x_glob - self.x
 
-        yc_temp = np.interp(x, self.x_centerline, self.y_centerline, left=0)
+        # Zero wake deflection for no yaw, no tilt case
+        if (self.rotor_sol.yaw != 0) or (self.rotor_sol.tilt != 0):
+            raise NotImplementedError("No wake deflection implemented for Gaussian TurbOPark wake model.")
+        else: 
+            yc = np.full(np.shape(x), self.y)
+            zc = np.full(np.shape(x), self.z) 
 
-        return yc_temp * self.rotor_sol.v4 / self.rotor_sol.REWS + self.y
+        return yc, zc
     
 
 class TopHatTurbOParkWake(Wake):
-    """
-    Attributes:
-        x: x-position of rotor in global coordinate frame
-        y: y-position of rotor in global coordinate frame
-        z: z-position of rotor in global coordinate frame
-        rotor_sol: Rotor solution
-        TIamb: Ambient turbulence intensity
-        A: Wake expansion calibration parameter 
-        c_1, c_2: Empirically estimated constants in wake-added turbulence intensity
-        xmax: Maximum x value evaluated
-        dx: Interval of x values evaluated
-    """
     def __init__(
         self,
         x: float,
@@ -526,7 +490,7 @@ class TopHatTurbOParkWake(Wake):
         z: float,
         rotor_sol: "RotorSolution",
         TIamb: float = 0.1,
-        A: float = 0.04,
+        WATI_Iw_multiplier: float = 0.04,
         c_1: float = 1.5,
         c_2: float = 0.8,
         xmax: float = 100.0,
@@ -535,23 +499,21 @@ class TopHatTurbOParkWake(Wake):
         self.x, self.y, self.z = x, y, z
         self.rotor_sol = rotor_sol
         self.TIamb = TIamb
-        self.A = A
+        self.WATI_Iw_multiplier = WATI_Iw_multiplier
         self.c_1 = c_1
         self.c_2 = c_2
-
-        # Precompute centerline far downstream
-        self.x_centerline, self.y_centerline = self._centerline(xmax, dx)
 
     def deficit(self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob = 0):
         """
         Solves Eq. 6 in Pedersen et al. 2022 for wake deficit profile
         """
 
-        x = x_glob - self.x
-        y = y_glob - self.y
-        z = z_glob - self.z
-        yc = self.centerline(x_glob) - self.y
-        r = np.sqrt((y - yc) ** 2 + z ** 2)
+        x = np.float64(x_glob - self.x)
+        y = np.float64(y_glob - self.y)
+        z = np.float64(z_glob - self.z)
+        yc = self.centerline(x_glob)[0] - self.y
+        zc = self.centerline(x_glob)[1] - self.z
+        r = np.sqrt((y - yc) ** 2 + (z - zc) ** 2) 
 
         d = self._wake_diameter(x)
 
@@ -562,15 +524,28 @@ class TopHatTurbOParkWake(Wake):
 
         du[x_mask] = self._du(x[x_mask], d[x_mask])
 
-        # Set deficit to be only inside cone of rotor
-        deficit = np.zeros(np.shape(y))
+        # Set deficit to be only inside wake region
+        # Handle x is a constant
+        if np.shape(x) == ():
+            deficit = np.zeros(np.shape(y))
 
-        for ii, _ in np.ndenumerate(deficit):
-            if (np.sqrt(r[ii] ** 2) <= 1/2*d[ii]) and (x[ii] >= 0):
-                deficit[ii] = du[ii]
-            else:
-                # Outside of wake, there is no deficit (velocity is the same as u_inf)
-                deficit[ii] = 0
+            for ii, _ in np.ndenumerate(deficit):
+                if (np.sqrt(r[ii] ** 2) <= 1/2*d) and (x >= 0):
+                    deficit[ii] = du
+                else:
+                    # Outside of wake, there is no deficit (velocity is the same as u_inf)
+                    deficit[ii] = 0
+
+        # Handle x is an array
+        else:
+            deficit = np.zeros(np.shape(x))
+
+            for ii, _ in np.ndenumerate(deficit):
+                if (np.sqrt(r[ii] ** 2) <= 1/2*d[ii]) and (x[ii] >= 0):
+                    deficit[ii] = du[ii]
+                else:
+                    # Outside of wake, there is no deficit (velocity is the same as u_inf)
+                    deficit[ii] = 0
 
         return deficit
 
@@ -633,7 +608,7 @@ class TopHatTurbOParkWake(Wake):
 
         d = np.zeros(np.shape(x))
 
-        d[comb_mask] = 1 + self.A * self.TIamb / beta * (
+        d[comb_mask] = 1 + self.WATI_Iw_multiplier * self.TIamb / beta * (
             np.sqrt((alpha + beta * x[comb_mask]) ** 2 + 1)
             - np.sqrt(1 + alpha ** 2)
             - np.log(log_expr[comb_mask])
@@ -670,48 +645,28 @@ class TopHatTurbOParkWake(Wake):
         # Placeholder of zeroes for now
         return np.zeros(np.shape(x_glob))
 
-
-    def _centerline(self, xmax: float, dx: float = 0.05) -> ArrayLike:
-        """
-        Based on principle from Shapiro, Gayme, and Meneveau, 2018, the 
-        transverse velocity wake recovery should mirror the axial velocity 
-        wake recovery. The centerline y position in global coordinates is 
-        then computed numerically using the transverse velocity deficit,
-        based on Equation 9 in Shapiro, Gayme, and Meneveau, 2018.
-        """
-
-        _x = np.arange(0, max(xmax, 2 * dx), dx)
-        d = self._wake_diameter(_x)
-
-        # Handle d = 0 -> centerline is self.y when d = 0
-        d_mask = d > 0
-        dv = np.zeros(np.shape(d))
-
-        # TODO: Not sure if this would be the right way to handle the proportionality
-        # between deficit in v and deficit in u
-        dv[d_mask] = (1 - np.tan(self.rotor_sol.yaw) * np.sqrt(1 - self.rotor_sol.Ct / self.rotor_sol.REWS ** 2)) / (d[d_mask]**2)
-        _yc = cumulative_trapezoid(-dv, dx=dx, initial=0)
-
-        _yc[d < 0] = self.y
-
-        return _x, _yc
-
     def centerline(self, x_glob: ArrayLike) -> ArrayLike:
         """
-        Interpolates Eq. 6 from Shapiro, Gayme, and Meneveau, 2018 (same as for 
-        GaussianWake) for centerline y position in global coordinates        
+        No wake deflection implemented for TurbOPark wake model, as
+        Shapiro et al. 2018 method is likely to overpredict deflection        
         """
+
         x = x_glob - self.x
 
-        yc_temp = np.interp(x, self.x_centerline, self.y_centerline, left=0)
+        # Zero wake deflection for no yaw, no tilt case
+        if (self.rotor_sol.yaw != 0) or (self.rotor_sol.tilt != 0):
+            raise NotImplementedError("No wake deflection implemented for top hat TurbOPark wake model.")
+        else: 
+            yc = np.full(np.shape(x), self.y)
+            zc = np.full(np.shape(x), self.z) 
 
-        return yc_temp * self.rotor_sol.v4 / self.rotor_sol.REWS + self.y
+        return yc, zc
 
 
 class TurbOParkWakeModel(WakeModel):
     def __init__(
         self,
-        A: float = 0.04,
+        WATI_Iw_multiplier: float = 0.04,
         c_1: float = 1.5,
         c_2: float = 0.8,
         xmax: float = 100.0,
@@ -720,7 +675,7 @@ class TurbOParkWakeModel(WakeModel):
     ):
         self.xmax = xmax
         self.dx = dx
-        self.A = A
+        self.WATI_Iw_multiplier = WATI_Iw_multiplier
         self.c_1 = c_1
         self.c_2 = c_2
         self.gaussian_profile = gaussian_profile
@@ -744,7 +699,7 @@ class TurbOParkWakeModel(WakeModel):
                 TIamb = TIamb,
                 xmax = self.xmax,
                 dx = self.dx,
-                A = self.A,
+                WATI_Iw_multiplier = self.WATI_Iw_multiplier,
                 c_1 = self.c_1,
                 c_2 = self.c_2,
             )
@@ -759,13 +714,38 @@ class TurbOParkWakeModel(WakeModel):
                 TIamb = TIamb,
                 xmax = self.xmax,
                 dx = self.dx,
-                A = self.A,
+                WATI_Iw_multiplier = self.WATI_Iw_multiplier,
                 c_1 = self.c_1,
                 c_2 = self.c_2,
             )
 
 
 class GaussianWake(Wake):
+    """
+    Gaussian wake model using the derivation from Shapiro et al. (2018)
+    with a wake added turbulence model from Crespo and Hernandez (1996).
+
+    The model uses a constant wake spreading rate (kw) and a constant standard
+    deviation (sigma) for the Gaussian profile. 
+
+    __init__: 
+        - Args
+            - sigma: float, standard deviation of the Gaussian profile (default: 0.25)
+            - kw: float, wake spreading rate (default: 0.07)
+            - WATI_sigma_multiplier: float, multiplier for the wake added 
+                turbulence intensity (WATI) sigma (default: 1.0)
+            - xmax: float, maximum x value for the centerline calculation (default: 100.0)
+
+    __call__: function to create a GaussianWake instance called by the wake model solver
+        - Args
+            - x: float, x-coordinate of the turbine
+            - y: float, y-coordinate of the turbine
+            - z: float, z-coordinate of the turbine
+            - rotor_sol: RotorSolution, solution object containing rotor parameters
+            - TIamb: float, ambient turbulence intensity (default: None)
+        - Returns:
+            - GaussianWake instance with the specified parameters.
+    """
     def __init__(
         self,
         x: float,
@@ -786,33 +766,39 @@ class GaussianWake(Wake):
         self.TIamb = TIamb or 0.0
 
         # precompute centerline far downstream
-        self.x_centerline, self.y_centerline = self._centerline(xmax, dx)
+        self.x_centerline, self.yz_centerline = self._centerline(xmax, dx)
 
     def __repr__(self):
         return f"GaussianWake(x={self.x}, y={self.y}, z={self.z}, sigma={self.sigma}, kw={self.kw})"
 
     def _centerline(self, xmax: float, dx: float = 0.05) -> ArrayLike:
         """
-        Solves Eq. C4. Returns centerline y position in global coordinates.
+        Returns centerline y/z position in rotor coordinates without constant v4/w4 factor.
+        Eqs. C3 and C4 in Heck et al 2023 Appendix C / Eqs. 3.8-3.9 in Shapiro et al 2018.
         """
-
         _x = np.arange(0, max(xmax, 2 * dx), dx)
         d = self._wake_diameter(_x)
+        # v and w deficit values at _x, without constant factors of v4 and w4 (see equation C3)
+        dvw = -0.5 / d**2 * (1 + erf(_x / (np.sqrt(2) / 2)))
+        # y and z centerline without  without constant factors of v4 and w4 (see integration in C4)
+        _yzc = cumulative_trapezoid(-dvw, dx=dx, initial=0)
 
-        dv = -0.5 / d**2 * (1 + erf(_x / (np.sqrt(2) / 2)))
-        _yc = cumulative_trapezoid(-dv, dx=dx, initial=0)
-
-        return _x, _yc
+        return _x, _yzc
 
     def centerline(self, x_glob: ArrayLike) -> ArrayLike:
         """
-        Solves Eq. C4. Returns centerline y position in global coordinates.
+        Returns centerline y position in global coordinates - scales and translates the results of the `_centerline` function.
+        Eq. C4. in Heck et al 2023 Appendix C / Eq. 3.9 in Shapiro et al 2018.
         """
         x = x_glob - self.x
 
-        yc_temp = np.interp(x, self.x_centerline, self.y_centerline, left=0)
-
-        return yc_temp * self.rotor_sol.v4 / self.rotor_sol.REWS + self.y
+        yzc_temp = np.interp(x, self.x_centerline, self.yz_centerline, left=0)
+        # scale and translate centerlines
+        # TODO: Should this be dimensionalized with respect to the freestream 
+        # as opposed to by REWS? (Multiply by REWS)
+        yc = yzc_temp * self.rotor_sol.v4 + self.y
+        zc = yzc_temp * self.rotor_sol.w4 + self.z
+        return yc, zc
 
     def centerline_wake_added_turb(self, x: ArrayLike) -> ArrayLike:
         """
@@ -836,50 +822,54 @@ class GaussianWake(Wake):
 
     def _wake_diameter(self, x: ArrayLike) -> ArrayLike:
         """
-        Solves the normalized far-wake diameter (between C1 and C2)
+        Solves the normalized far-wake diameter. Note that this is non-dimensionalized by D and x is actually x/D.
+        Defined in text between Eq. C1 and C2 in Heck et al 2023 Appendix C / in text between Eq. 3.4-3.5 in Shapiro et al 2018.
+
+        Note that this is non-dimensionalized by D and x is actually x/D.
         """
         return 1 + self.kw * np.log(1 + np.exp(2 * (x - 1)))
 
     def _du(self, x: ArrayLike, wake_diameter: Optional[float] = None) -> ArrayLike:
         """
-        Solves Eq. C2
+        Calcualtes the streamwise velocity deficit.
+        Eq. C2. in Heck et al 2023 Appendix C / Eq. 3.7 in Shapiro et al 2018.
         """
         d = self._wake_diameter(x) if wake_diameter is None else wake_diameter
 
-        du = 0.5 * (1 - self.rotor_sol.u4) / d**2 * (1 + erf(x / (np.sqrt(2) / 2)))
+        du = 0.5 * (1 - (self.rotor_sol.u4 / self.rotor_sol.REWS)) / d**2 * (1 + erf(x / (np.sqrt(2) / 2)))
         return du
+
+    def _gaussian(self, x_glob, y_glob, z_glob, sigma_multiplier = 1):
+        """
+        Defines a Gaussian profile centered at the turbine.
+        Gaussian portion of Eq. C1 in Heck et al 2023 Appendix C / Eq. 3.5 in Shapiro et al 2018 (without streamwise velocity deficit multiplier).
+        """
+        # calculate the centerline
+        yc, zc = self.centerline(x_glob)
+        # transform coordinates to be in turbine/wake centerline frame of reference
+        x = x_glob - self.x
+        y = y_glob - yc
+        z = z_glob - zc
+        # find wake diameter
+        d = self._wake_diameter(x)
+        # calculate sigma
+        sigma = self.sigma * sigma_multiplier
+        # calculate gaussian
+        gaussian_ = (
+            1
+            / (8 * sigma**2)
+            * np.exp(-((y** 2 + z**2) / (2 * sigma**2 * d**2)))
+        )
+        return gaussian_, x, d
+
 
     def deficit(self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0) -> ArrayLike:
         """
-        Solves Eq. C1
+        Distributes average streamwise velocity deficit using a Gaussian profile centered at the turbine.
+        Eq. C1 in Heck et al 2023 Appendix C / Eq. 3.5 in Shapiro et al 2018.
         """
-        x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
-        d = self._wake_diameter(x)
-        yc = self.centerline(x_glob) - self.y
+        gaussian_, x, d = self._gaussian(x_glob, y_glob, z_glob)
         du = self._du(x, wake_diameter=d)
-        gaussian_ = (
-            1
-            / (8 * self.sigma**2)
-            * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
-        )
-
-        return gaussian_ * du
-    
-    def niayifar_deficit(self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0) -> ArrayLike:
-        """
-        Solves Eq. C1 where the wake deficit is defined relative to the
-        incident rotor wind speed following Niayifar (2016) Energies.
-        """
-        x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
-        d = self._wake_diameter(x)
-        yc = self.centerline(x_glob) - self.y
-        du = 0.5 * (self.rotor_sol.REWS - self.rotor_sol.u4) / d**2 * (1 + erf(x / (np.sqrt(2) / 2)))
-        gaussian_ = (
-            1
-            / (8 * self.sigma**2)
-            * np.exp(-(((y - yc) ** 2 + z**2) / (2 * self.sigma**2 * d**2)))
-        )
-       
         return gaussian_ * du
 
     def wake_added_turbulence(
@@ -890,32 +880,18 @@ class GaussianWake(Wake):
         points in space. Laterally smeared with the gaussian twice as wide as
         the wake deficit model. As recommended by Niayifar and Porte-Agel 2016
         """
-        x, y, z = x_glob - self.x, y_glob - self.y, z_glob - self.z
-        d = self._wake_diameter(x)
-        yc = self.centerline(x_glob) - self.y
+        gaussian_, x, _ = self._gaussian(x_glob, y_glob, z_glob, sigma_multiplier = self.WATI_sigma_multiplier)
         WATI = self.centerline_wake_added_turb(x)
+        return gaussian_ * np.nan_to_num(WATI)
 
-        _gaussian = (
-            1
-            / (8 * (self.WATI_sigma_multiplier * self.sigma) ** 2)
-            * np.exp(
-                -(
-                    ((y - yc) ** 2 + z**2)
-                    / (2 * (self.WATI_sigma_multiplier * self.sigma) ** 2 * d**2)
-                )
-            )
-        )
-
-        return _gaussian * np.nan_to_num(WATI)
-
-    def line_deficit(self, x: np.array, y: np.array):
+    def line_deficit(self, x: np.array, y: np.array, z = 0):
         """
         Returns the deficit at hub height averaged along a lateral line of
         length 1, centered at (x, y).
         """
-
+        warnings.warn("Line deficit is deprecated as it cannot handle a z-offset. Use another deficit function.", DeprecationWarning)
         d = self._wake_diameter(x)
-        yc = self.centerline(x)
+        yc, zc = self.centerline(x)
         du = self._du(x, wake_diameter=d)
 
         erf_plus = erf((y + 0.5 - yc) / (np.sqrt(2) * self.sigma * d))
