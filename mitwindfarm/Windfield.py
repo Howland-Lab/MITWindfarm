@@ -213,10 +213,13 @@ class Superimposed(Windfield):
         wsp_base = self.base_windfield.wsp(x, y, z)
         deficits = []
         for wake in self.wakes:
-            if (self.method == "niayifar") | (self.method == "nquadratic"):
-                deficits.append(wake.niayifar_deficit(x, y, z))
-            else:
-                deficits.append(wake.deficit(x, y, z))
+            # calculate wake deficit
+            wake_deficit = wake.deficit(x, y, z)
+            # niayifar method from 2016 paper mutlitpies the deficit by REWS
+            if self.method == "niayifar":
+               wake_deficit *= wake.rotor_sol.REWS
+            # combine deficits
+            deficits.append(wake_deficit)
     
         if len(deficits) == 0:
             deficits.append(np.zeros_like(wsp_base))

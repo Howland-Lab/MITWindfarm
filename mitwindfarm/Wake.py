@@ -773,7 +773,7 @@ class GaussianWake(Wake):
 
     def _centerline(self, xmax: float, dx: float = 0.05) -> ArrayLike:
         """
-        Returns centerline y/z position in rotor coordinates without constant v4/w4 factor.
+        Returns centerline y/z position in global coordinates without constant v4/w4 factor.
         Eqs. C3 and C4 in Heck et al 2023 Appendix C / Eqs. 3.8-3.9 in Shapiro et al 2018.
         """
         _x = np.arange(0, max(xmax, 2 * dx), dx)
@@ -791,11 +791,8 @@ class GaussianWake(Wake):
         Eq. C4. in Heck et al 2023 Appendix C / Eq. 3.9 in Shapiro et al 2018.
         """
         x = x_glob - self.x
-
         yzc_temp = np.interp(x, self.x_centerline, self.yz_centerline, left=0)
         # scale and translate centerlines
-        # TODO: Should this be dimensionalized with respect to the freestream 
-        # as opposed to by REWS? (Multiply by REWS)
         yc = yzc_temp * self.rotor_sol.v4 + self.y
         zc = yzc_temp * self.rotor_sol.w4 + self.z
         return yc, zc
