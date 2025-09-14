@@ -46,7 +46,8 @@ class JensenWake(Wake):
         y: y-position of rotor in global coordinate frame
         z: z-position of rotor in global coordinate frame
         rotor_sol: Rotor solution
-        sigma: Proportionality constant for wake diameter used in Gaussian
+        sigma: Proportionality constant for wake diameter used in Gaussian and thus expected
+        by WakeModel class, even though Jensen doesn't require a sigma 
         kw: Constant coefficient for wake growth
         xmax: Maximum x value evaluated
         dx: Interval of x values evaluated
@@ -189,6 +190,7 @@ class JensenWake(Wake):
         # Calculate deficit
         deficit = self.deficit(x_glob, y_glob, z_glob)
 
+        # Multiply by REWS to get Niayifar deficit
         return self.rotor_sol.REWS * deficit
 
 
@@ -227,6 +229,19 @@ class JensenWakeModel(WakeModel):
         
 
 class TurbOParkWake(Wake):
+    """
+    Attributes:
+        x: x-position of rotor in global coordinate frame
+        y: y-position of rotor in global coordinate frame
+        z: z-position of rotor in global coordinate frame
+        rotor_sol: Rotor solution
+        TIamb: Ambient turbulence intensity
+        A: Wake expansion calibration parameter 
+        c_1, c_2: Empirically estimated constants in wake-added turbulence intensity
+        xmax: Maximum x value evaluated
+        dx: Interval of x values evaluated
+    """
+
     def __init__(
         self,
         x: float,
@@ -234,7 +249,7 @@ class TurbOParkWake(Wake):
         z: float,
         rotor_sol: "RotorSolution",
         TIamb: float = 0.1,
-        WATI_Iw_multiplier: float = 0.04,
+        A: float = 0.04,
         c_1: float = 1.5,
         c_2: float = 0.8,
         xmax: float = 100.0,
@@ -243,7 +258,7 @@ class TurbOParkWake(Wake):
         self.x, self.y, self.z = x, y, z
         self.rotor_sol = rotor_sol
         self.TIamb = TIamb
-        self.WATI_Iw_multiplier = WATI_Iw_multiplier
+        self.A = A
         self.c_1 = c_1
         self.c_2 = c_2
 
@@ -306,6 +321,7 @@ class TurbOParkWake(Wake):
         # Calculate deficit
         deficit = self.deficit(x_glob, y_glob, z_glob)
 
+        # Multiply by REWS to get Niayifar deficit
         return self.rotor_sol.REWS * deficit
 
     def _centerline_wake_added_turb(self, x: ArrayLike):
@@ -357,7 +373,7 @@ class TurbOParkWake(Wake):
 
         sigma = np.zeros(np.shape(x))
 
-        sigma[comb_mask] = epsilon + self.WATI_Iw_multiplier * self.TIamb / beta * (
+        sigma[comb_mask] = epsilon + self.A * self.TIamb / beta * (
                 np.sqrt((alpha + beta * x[comb_mask]) ** 2 + 1)
                 - np.sqrt(1 + alpha ** 2)
                 - np.log(log_expr[comb_mask])
@@ -452,10 +468,10 @@ class TurbOParkWake(Wake):
 
         _gaussian[comb_mask] = (
             1
-            / (8 * (self.WATI_Iw_multiplier * sigma[comb_mask]) ** 2)
+            / (8 * (self.A * sigma[comb_mask]) ** 2)
             * np.exp(
                 -(((y[comb_mask] - yc[comb_mask]) ** 2 + (z[comb_mask] - zc[comb_mask])**2)
-                    / (2 * (self.WATI_Iw_multiplier * sigma[comb_mask]) ** 2 * d[comb_mask]**2)
+                    / (2 * (self.A * sigma[comb_mask]) ** 2 * d[comb_mask]**2)
                 )
             )
         )
@@ -483,6 +499,19 @@ class TurbOParkWake(Wake):
     
 
 class TopHatTurbOParkWake(Wake):
+    """
+    Attributes:
+        x: x-position of rotor in global coordinate frame
+        y: y-position of rotor in global coordinate frame
+        z: z-position of rotor in global coordinate frame
+        rotor_sol: Rotor solution
+        TIamb: Ambient turbulence intensity
+        A: Wake expansion calibration parameter 
+        c_1, c_2: Empirically estimated constants in wake-added turbulence intensity
+        xmax: Maximum x value evaluated
+        dx: Interval of x values evaluated
+    """
+
     def __init__(
         self,
         x: float,
@@ -490,7 +519,7 @@ class TopHatTurbOParkWake(Wake):
         z: float,
         rotor_sol: "RotorSolution",
         TIamb: float = 0.1,
-        WATI_Iw_multiplier: float = 0.04,
+        A: float = 0.6,
         c_1: float = 1.5,
         c_2: float = 0.8,
         xmax: float = 100.0,
@@ -499,7 +528,7 @@ class TopHatTurbOParkWake(Wake):
         self.x, self.y, self.z = x, y, z
         self.rotor_sol = rotor_sol
         self.TIamb = TIamb
-        self.WATI_Iw_multiplier = WATI_Iw_multiplier
+        self.A = A
         self.c_1 = c_1
         self.c_2 = c_2
 
@@ -608,7 +637,7 @@ class TopHatTurbOParkWake(Wake):
 
         d = np.zeros(np.shape(x))
 
-        d[comb_mask] = 1 + self.WATI_Iw_multiplier * self.TIamb / beta * (
+        d[comb_mask] = 1 + self.A * self.TIamb / beta * (
             np.sqrt((alpha + beta * x[comb_mask]) ** 2 + 1)
             - np.sqrt(1 + alpha ** 2)
             - np.log(log_expr[comb_mask])
@@ -642,7 +671,7 @@ class TopHatTurbOParkWake(Wake):
         self, x_glob: ArrayLike, y_glob: ArrayLike, z_glob=0
     ) -> ArrayLike:
 
-        # Placeholder of zeroes for now
+        # Placeholder of zeroes
         return np.zeros(np.shape(x_glob))
 
     def centerline(self, x_glob: ArrayLike) -> ArrayLike:
@@ -666,7 +695,7 @@ class TopHatTurbOParkWake(Wake):
 class TurbOParkWakeModel(WakeModel):
     def __init__(
         self,
-        WATI_Iw_multiplier: float = 0.04,
+        A: float = 0.04,
         c_1: float = 1.5,
         c_2: float = 0.8,
         xmax: float = 100.0,
@@ -675,7 +704,7 @@ class TurbOParkWakeModel(WakeModel):
     ):
         self.xmax = xmax
         self.dx = dx
-        self.WATI_Iw_multiplier = WATI_Iw_multiplier
+        self.A = A
         self.c_1 = c_1
         self.c_2 = c_2
         self.gaussian_profile = gaussian_profile
@@ -699,7 +728,7 @@ class TurbOParkWakeModel(WakeModel):
                 TIamb = TIamb,
                 xmax = self.xmax,
                 dx = self.dx,
-                WATI_Iw_multiplier = self.WATI_Iw_multiplier,
+                A = self.A,
                 c_1 = self.c_1,
                 c_2 = self.c_2,
             )
@@ -714,7 +743,7 @@ class TurbOParkWakeModel(WakeModel):
                 TIamb = TIamb,
                 xmax = self.xmax,
                 dx = self.dx,
-                WATI_Iw_multiplier = self.WATI_Iw_multiplier,
+                A = self.A,
                 c_1 = self.c_1,
                 c_2 = self.c_2,
             )
