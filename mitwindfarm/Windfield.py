@@ -226,7 +226,7 @@ class Superimposed(Windfield):
 
         if (self.method == "linear") | (self.method == "niayifar"):
             wsp_out = wsp_base - np.sum(deficits, axis=0)
-        elif self.method == "quadratic":
+        elif (self.method == "quadratic") | (self.method == "nquadratic"):
             wsp_out = wsp_base - np.sqrt(np.sum(np.array(deficits)**2, axis=0))
         elif self.method == "dominant":
             wsp_out = wsp_base - np.array(deficits).max(axis=0, initial=0)
@@ -234,6 +234,61 @@ class Superimposed(Windfield):
             raise NotImplementedError
 
         return wsp_out
+    
+
+    def mem_eff_wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Returns an array of wind speed based on superposing the windfield's wakes. Runs without creating a
+        x by y by z by n_rotors array to conserve memory. 
+
+        Parameters:
+        - x: x-coordinates.
+        - y: y-coordinates.
+        - z: z-coordinates.
+
+        Returns:
+        ArrayLike: Array of ind speed based on the windfield's wakes with the same shape as input coordinates.
+        """    
+        wsp_base = self.base_windfield.wsp(x, y, z)
+        tot_deficit = np.zeros_like(wsp_base)
+        deficit_count = 0
+
+        for wake in self.wakes:
+            if (self.method == "niayifar") | (self.method == "nquadratic"):
+                deficit = wake.niayifar_deficit(x, y, z)
+            else: 
+                deficit = wake.deficit(x, y, z)
+
+            if deficit is not None:
+                deficit_count += 1
+
+            # Compute linear methods by first totalling deficit fields
+            if (self.method == "linear") | (self.method == "niayifar"):
+                tot_deficit += deficit
+            # Compute quadratic methods by first summing squares of deficit fields
+            elif (self.method == "quadratic") | (self.method == "nquadratic"):
+                tot_deficit += deficit**2
+            # Compute dominant method by first checking maximum of deficit fields
+            elif self.method == "dominant":
+                # Stack current deficit maximum and deficit
+                deficits = np.stack((tot_deficit, deficit), axis = 0)
+                # Store maximum of the two
+                tot_deficit = deficits.max(axis = 0, initial = 0)
+            else:
+                raise NotImplementedError
+            
+        # Handle no deficits
+        if deficit_count == 0:
+            wsp_out = wsp_base
+        # Output linear and dominant methods by subtracting total of deficits from base
+        elif (self.method == "linear") | (self.method == "niayifar") | (self.method == "dominant"):
+            wsp_out = wsp_base - tot_deficit
+        # Output quadratic methods by subtracting square root of tot_deficit from base
+        elif (self.method == "quadratic") | (self.method == "nquadratic"):
+            wsp_out = wsp_base - np.sqrt(tot_deficit)
+
+        return wsp_out
+
 
     def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         """
