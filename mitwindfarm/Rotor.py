@@ -268,12 +268,12 @@ class UnifiedAD_TI(UnifiedAD):
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
             yaw,
-            sol.Cp[0] * REWS**3,
-            sol.Ct[0] * REWS**2,
+            sol.Cp * REWS**3,
+            sol.Ct * REWS**2,
             sol.Ctprime,
-            sol.an[0] * REWS,
-            sol.u4[0] * REWS,
-            sol.v4[0] * REWS,
+            sol.an * REWS,
+            sol.u4 * REWS,
+            sol.v4 * REWS,
             REWS,
             TI=RETI,
             extra=sol,
