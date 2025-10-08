@@ -240,7 +240,7 @@ class UnifiedAD_TI(UnifiedAD):
             self._model = UnifiedMomentumTI_x0(beta=beta, alpha=alpha)
 
     def __call__(
-        self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw = 0, tilt = 0,
+        self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw
     ) -> RotorSolution:
         """
         Calculate the rotor solution for given Ctprime and yaw inputs.
@@ -263,7 +263,7 @@ class UnifiedAD_TI(UnifiedAD):
 
         REWS = self.rotor_grid.average(Us)
         RETI = np.sqrt(self.rotor_grid.average(TIs**2))
-        sol = self._model(Ctprime, yaw = yaw, tilt = tilt, TI=RETI)
+        sol = self._model(Ctprime, yaw, TI=RETI)
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
@@ -275,8 +275,6 @@ class UnifiedAD_TI(UnifiedAD):
             sol.u4[0] * REWS,
             sol.v4[0] * REWS,
             REWS,
-            tilt = tilt,
-            w4 = sol.w4 * REWS,
             TI=RETI,
             extra=sol,
         )
