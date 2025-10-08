@@ -268,12 +268,12 @@ class UnifiedAD_TI(UnifiedAD):
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
             yaw,
-            sol.Cp * REWS**3,
-            sol.Ct * REWS**2,
+            sol.Cp[0] * REWS**3,
+            sol.Ct[0] * REWS**2,
             sol.Ctprime,
-            sol.an * REWS,
-            sol.u4 * REWS,
-            sol.v4 * REWS,
+            sol.an[0] * REWS,
+            sol.u4[0] * REWS,
+            sol.v4[0] * REWS,
             REWS,
             tilt = tilt,
             w4 = sol.w4 * REWS,
@@ -473,34 +473,31 @@ class UnifiedMomentumTI_x0(UnifiedMomentum):
             beta=beta, cached=cached, v4_correction=v4_correction, **kwargs
         )
         self.alpha = alpha
-    
-    def pre_process(self, *args, **kwargs):
-        return super().pre_process(*args, **kwargs)
 
-    def initial_guess(self, *args, **kwargs):
-        return super().initial_guess(*args, **kwargs)
+    def initial_guess(self, Ctprime, yaw, TI):
+        return super().initial_guess(Ctprime, yaw)
 
     def residual(
-        self, *args: float, **kwargs: float
+        self, x: np.ndarray, Ctprime: float, yaw: float, TI: float = 0
     ):
         """
         Returns the residuals of the Unified Momentum Model for the fixed point
         iteration. The equations referred to in this function are from the
         associated paper.
         """
-        return super().residual(*args, **kwargs)  # TI unused here; decoupled
+        return super().residual(x, Ctprime, yaw)  # TI unused here; decoupled
 
-    def post_process(self, result, Ctprime, yaw = 0, TI = 0, tilt = 0, **kwargs):
+    def post_process(self, result, Ctprime, yaw, TI):
         a, u4, v4, _x0, dp = result.x
         x0 = (
-            np.cos(self.eff_yaw)
+            np.cos(yaw)
             / 4
             * (1 + u4)
-            * np.sqrt((1 - a) * np.cos(self.eff_yaw) / (1 + u4))
+            * np.sqrt((1 - a) * np.cos(yaw) / (1 + u4))
             / (self.beta * np.abs(1 - u4) / 2 + self.alpha * TI)
         )  # re-compute x0 with TI influence decoupled
         result.x = (a, u4, v4, x0, dp)
-        return super().post_process(result, Ctprime, yaw = yaw, tilt = tilt, **kwargs)
+        return super().post_process(result, Ctprime, yaw)
 
 
 class UnifiedMomentumTI(UnifiedMomentum):
@@ -512,14 +509,11 @@ class UnifiedMomentumTI(UnifiedMomentum):
         super().__init__(beta=beta, **kwargs)
         self.alpha = alpha
 
-    def pre_process(self, Ctprime, **kwargs):
-        return super().pre_process(Ctprime, **kwargs)
-
-    def initial_guess(self, Ctprime, *args, **kwargs):
-        return super().initial_guess(Ctprime, *args, **kwargs)
+    def initial_guess(self, Ctprime, yaw, TI):
+        return super().initial_guess(Ctprime, yaw)
 
     def residual(
-        self, x: np.ndarray, Ctprime: float, yaw: float = 0, tilt: float = 0, TI: float = 0
+        self, x: np.ndarray, Ctprime: float, yaw: float, TI: float = 0
     ):
         """
         Returns the residuals of the Unified Momentum Model for the fixed point
@@ -527,16 +521,63 @@ class UnifiedMomentumTI(UnifiedMomentum):
         associated paper.
         """
         an, u4, v4, x0, dp = x
+        if type(Ctprime) is float and Ctprime == 0:
+            return 0 - an, 1 - u4, 0 - v4, 100 - x0, 0 - dp
+
+        p_g = self._nonlinear_pressure(Ctprime, yaw, an, x0)
+
         # Eq. 4 - Near wake length in residual form, includes alpha term.
         e_x0 = (
-            np.cos(self.eff_yaw)
+            np.cos(yaw)
             / 4
             * (1 + u4)
-            * np.sqrt((1 - an) * np.cos(self.eff_yaw) / (1 + u4))
+            * np.sqrt((1 - an) * np.cos(yaw) / (1 + u4))
             / (self.beta * np.abs(1 - u4) / 2 + self.alpha * TI)
         ) - x0
 
-        return super().residual(x, Ctprime, e_x0 = e_x0, yaw = yaw, tilt = tilt)
+        # Eq. 1 - Rotor-normal induction in residual form.
+        e_an = (
+            1
+            - np.sqrt(
+                -dp / (0.5 * Ctprime * np.cos(yaw) ** 2)
+                + (1 - u4**2 - v4**2) / (Ctprime * np.cos(yaw) ** 2)
+            )
+        ) - an
+
+        # Eq. 2 - Streamwise outlet velocity in residual form.
+        e_u4 = (
+            -(1 / 4) * Ctprime * (1 - an) * np.cos(yaw) ** 2
+            + (1 / 2)
+            + (1 / 2)
+            * np.sqrt(
+                (1 / 2 * Ctprime * (1 - an) * np.cos(yaw) ** 2 - 1) ** 2 - (4 * dp)
+            )
+        ) - u4
+
+        # Eq. 3 - Lateral outlet velocity in residual form.
+        e_v4 = (
+            -self.v4_correction
+            * (1 / 4)
+            * Ctprime
+            * (1 - an) ** 2
+            * np.sin(yaw)
+            * np.cos(yaw) ** 2
+            - v4
+        )
+
+        # Eq. 5 - Outlet pressure drop in residual form.
+        e_dp = (
+            (
+                -(1 / (2 * np.pi))
+                * Ctprime
+                * (1 - an) ** 2
+                * np.cos(yaw) ** 2
+                * np.arctan(1 / (2 * x0))
+            )
+            + p_g
+        ) - dp
+
+        return e_an, e_u4, e_v4, e_x0, e_dp
 
     def post_process(self, result, Ctprime, yaw, TI):
         return super().post_process(result, Ctprime, yaw)

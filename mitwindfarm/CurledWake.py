@@ -23,7 +23,7 @@ from mitwindfarm.utils.integrate import (
     IntegrationException,
     DomainExpansionRequest,
 )
-from UnifiedMomentumModel.Utilities.Geometry import calc_eff_yaw, eff_yaw_inv_rotation
+from UnifiedMomentumModel.Geometry import calc_eff_yaw, eff_yaw_inv_rotation
 from mitwindfarm.utils.differentiate import second_der
 
 
@@ -247,8 +247,8 @@ class CurledWakeWindfield(Windfield):
         # along z-axis in yaw-only frame (also the radial distance of each point from center in any frame)
         r_i = np.linspace(-(D - d_yx) / 2, (D - d_yx) / 2, self.N_vortex)
         # rotate points into yaw-and-tilt frame
-        eff_yaw = calc_eff_yaw(rotor.yaw, rotor.tilt)
-        _, y_i, z_i = eff_yaw_inv_rotation(np.zeros_like(r_i), np.zeros_like(r_i), r_i, eff_yaw, rotor.yaw, rotor.tilt)
+        eff_yaw = calc_eff_yaw(self.yaw, self.tilt)
+        _, y_i, z_i = eff_yaw_inv_rotation(np.zeros_like(r_i), np.zeros_like(r_i), r_i, eff_yaw, self.yaw, self.tilt)
         # NOTE: rotor.Ct differs from Shapiro et al. (2018) definition - includes cos^2(eff_yaw)
         Gamma_0 = 0.5 * D * rotor.REWS * rotor.Ct * np.sin(eff_yaw)
         Gamma_i = (
@@ -262,7 +262,6 @@ class CurledWakeWindfield(Windfield):
         yG, zG = np.meshgrid(self.grid[1], self.grid[2], indexing="ij")
         yG = yG[..., None]
         zG = zG[..., None]
-
         rsq = (yG - yt - y_i[None, None, :]) ** 2 + (zG - zt - z_i[None, None, :]) ** 2  # 3D grid variable
         rsq = np.clip(rsq, 1e-8, None)  # avoid singularities
 
