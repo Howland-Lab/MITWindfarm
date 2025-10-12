@@ -4,7 +4,6 @@ from mitwindfarm import Uniform, Layout
 from mitwindfarm.windfarm import Windfarm, CurledWindfarm
 from mitwindfarm.Rotor import UnifiedAD_TI
 from UnifiedMomentumModel.Utilities.Geometry import calc_eff_yaw, eff_yaw_inv_rotation
-import matplotlib.pyplot as plt
 from scipy.ndimage import rotate
 
 def get_curled_windfarm():
