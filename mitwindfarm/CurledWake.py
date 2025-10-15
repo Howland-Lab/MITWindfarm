@@ -252,7 +252,7 @@ class CurledWakeWindfield(Windfield):
         # NOTE: rotor.Ct differs from Shapiro et al. (2018) definition - includes cos^2(eff_yaw)
         Gamma_0 = 0.5 * D * rotor.REWS * rotor.Ct * np.sin(eff_yaw)
         Gamma_i = (
-            Gamma_0 * 4 * r_i / (self.N_vortex * np.sqrt(1 - (2 * r_i / D) ** 2))
+            Gamma_0 * 4 * r_i / (self.N_vortex * D * np.sqrt(1 - (2 * r_i / D) ** 2))
         )
 
         # generally, vortices can decay, so sigma should be a function of x  # TODO
