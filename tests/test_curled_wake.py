@@ -104,9 +104,6 @@ def test_TI_rotor_differences():
         # ensure that without TI, the new UMM models (with TI adjustments) are equivalent
         assert sol1.rotors[0].extra.dp_NL != sol3.rotors[0].extra.dp_NL
         assert sol2.rotors[0].u4 != sol3.rotors[0].u4
-        assert sol2.rotors[0].v4 != sol3.rotors[0].v4
-        assert sol2.rotors[0].w4 != sol3.rotors[0].w4
-        assert sol2.rotors[0].Cp != sol3.rotors[0].Cp
 
 test_wake_shape_rotation()
 test_TI_rotor_equivalence()

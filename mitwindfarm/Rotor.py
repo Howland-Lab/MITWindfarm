@@ -519,7 +519,7 @@ class UnifiedMomentumTI(UnifiedMomentum):
         return super().initial_guess(Ctprime, *args, **kwargs)
 
     def residual(
-        self, x: np.ndarray, Ctprime: float, yaw: float = 0, tilt: float = 0, TI: float = 0
+        self, x: np.ndarray, Ctprime: float, TI: float = 0, **kwargs
     ):
         """
         Returns the residuals of the Unified Momentum Model for the fixed point
@@ -536,7 +536,7 @@ class UnifiedMomentumTI(UnifiedMomentum):
             / (self.beta * np.abs(1 - u4) / 2 + self.alpha * TI)
         ) - x0
 
-        return super().residual(x, Ctprime, e_x0 = e_x0, yaw = yaw, tilt = tilt)
+        return super().residual(x, Ctprime, e_x0 = e_x0, **kwargs)
 
     def post_process(self, result, Ctprime, yaw, tilt: float = 0, **kwargs):
         return super().post_process(result, Ctprime, yaw = yaw, tilt = tilt, **kwargs)
