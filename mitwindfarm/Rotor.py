@@ -490,7 +490,7 @@ class UnifiedMomentumTI_x0(UnifiedMomentum):
         """
         return super().residual(*args, **kwargs)  # TI unused here; decoupled
 
-    def post_process(self, result, Ctprime, yaw = 0, TI = 0, tilt = 0, **kwargs):
+    def post_process(self, result, Ctprime, yaw = 0, tilt = 0, TI = 0, **kwargs):
         a, u4, v4, _x0, dp = result.x
         x0 = (
             np.cos(self.eff_yaw)
@@ -538,5 +538,5 @@ class UnifiedMomentumTI(UnifiedMomentum):
 
         return super().residual(x, Ctprime, e_x0 = e_x0, yaw = yaw, tilt = tilt)
 
-    def post_process(self, result, Ctprime, yaw, TI):
-        return super().post_process(result, Ctprime, yaw)
+    def post_process(self, result, Ctprime, yaw, tilt: float = 0, **kwargs):
+        return super().post_process(result, Ctprime, yaw = yaw, tilt = tilt, **kwargs)
