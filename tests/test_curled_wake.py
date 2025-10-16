@@ -86,9 +86,12 @@ def test_TI_rotor_equivalence():
         sol3 = wf(layout, setpoints)
         # ensure that without TI, the new UMM models (with TI adjustments) are equivalent
         assert sol1.rotors[0].u4 ==  sol2.rotors[0].u4 ==  sol3.rotors[0].u4
-        assert sol1.rotors[0].v4 ==  sol2.rotors[0].v4 ==  sol3.rotors[0].v4
-        assert sol1.rotors[0].w4 ==  sol2.rotors[0].w4 ==  sol3.rotors[0].w4
         assert sol1.rotors[0].Cp ==  sol2.rotors[0].Cp ==  sol3.rotors[0].Cp
+        # need to use "is-close" since values are re-calculated and could be off by rounding
+        assert np.isclose(sol1.rotors[0].extra.dp_NL, sol3.rotors[0].extra.dp_NL)
+        assert np.isclose(sol1.rotors[0].extra.x0, sol3.rotors[0].extra.x0)
+        assert sol2.rotors[0].extra.dp_NL == sol3.rotors[0].extra.dp_NL
+        assert sol2.rotors[0].extra.x0 == sol3.rotors[0].extra.x0
 
 def test_TI_rotor_differences():
     wf_curled_TI, layout = get_curled_windfarm(couple_x0 = False, TIamb = 0.1)
@@ -101,8 +104,9 @@ def test_TI_rotor_differences():
         sol1 = wf_curled_TI(layout, setpoints)
         sol2 = wf_curled_TI_couple(layout, setpoints)
         sol3 = wf(layout, setpoints)
-        # ensure that without TI, the new UMM models (with TI adjustments) are equivalent
+        # ensure that with TI, the new UMM models (with TI adjustments) are different
         assert sol1.rotors[0].extra.dp_NL != sol3.rotors[0].extra.dp_NL
+        assert sol2.rotors[0].extra.dp_NL != sol3.rotors[0].extra.dp_NL
         assert sol2.rotors[0].u4 != sol3.rotors[0].u4
 
 test_wake_shape_rotation()

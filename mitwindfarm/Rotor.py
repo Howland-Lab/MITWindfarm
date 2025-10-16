@@ -527,6 +527,11 @@ class UnifiedMomentumTI(UnifiedMomentum):
         associated paper.
         """
         an, u4, v4, x0, dp = x
+        if type(Ctprime) is float and Ctprime == 0:
+            return 0 - an, 1 - u4, 0 - v4, 100 - x0, 0 - dp
+
+        p_g = self._nonlinear_pressure(Ctprime, self.eff_yaw, an, x0)
+
         # Eq. 4 - Near wake length in residual form, includes alpha term.
         e_x0 = (
             np.cos(self.eff_yaw)
@@ -536,7 +541,49 @@ class UnifiedMomentumTI(UnifiedMomentum):
             / (self.beta * np.abs(1 - u4) / 2 + self.alpha * TI)
         ) - x0
 
-        return super().residual(x, Ctprime, e_x0 = e_x0, **kwargs)
+        # Eq. 1 - Rotor-normal induction in residual form.
+        e_an = (
+            1
+            - np.sqrt(
+                -dp / (0.5 * Ctprime * np.cos(self.eff_yaw) ** 2)
+                + (1 - u4**2 - v4**2) / (Ctprime * np.cos(self.eff_yaw) ** 2)
+            )
+        ) - an
+
+        # Eq. 2 - Streamwise outlet velocity in residual form.
+        e_u4 = (
+            -(1 / 4) * Ctprime * (1 - an) * np.cos(self.eff_yaw) ** 2
+            + (1 / 2)
+            + (1 / 2)
+            * np.sqrt(
+                (1 / 2 * Ctprime * (1 - an) * np.cos(self.eff_yaw) ** 2 - 1) ** 2 - (4 * dp)
+            )
+        ) - u4
+
+        # Eq. 3 - Lateral outlet velocity in residual form.
+        e_v4 = (
+            -self.v4_correction
+            * (1 / 4)
+            * Ctprime
+            * (1 - an) ** 2
+            * np.sin(self.eff_yaw)
+            * np.cos(self.eff_yaw) ** 2
+            - v4
+        )
+
+        # Eq. 5 - Outlet pressure drop in residual form.
+        e_dp = (
+            (
+                -(1 / (2 * np.pi))
+                * Ctprime
+                * (1 - an) ** 2
+                * np.cos(self.eff_yaw) ** 2
+                * np.arctan(1 / (2 * x0))
+            )
+            + p_g
+        ) - dp
+
+        return e_an, e_u4, e_v4, e_x0, e_dp
 
     def post_process(self, result, Ctprime, yaw, tilt: float = 0, **kwargs):
         return super().post_process(result, Ctprime, yaw = yaw, tilt = tilt, **kwargs)
