@@ -264,9 +264,6 @@ class BEM(Rotor):
         Calculate the RotorSolution for given pitch, TSR, and yaw inputs.
         See above class documentation on __call__ for more details.
         """
-        if tilt != 0:
-            warnings.warn("Non-zero tilt is not yet implemented for BEM. Setting tilt to zero.", UserWarning)
-            tilt = 0
 
         xs_glob = self.xgrid_loc + x
         ys_glob = self.ygrid_loc + y
@@ -288,6 +285,8 @@ class BEM(Rotor):
             sol.u4 * REWS,
             sol.v4 * REWS,
             REWS,
+            tilt = tilt,
+            w4 = sol.w4 * REWS,
             TI=RETI,
             extra=sol,
         )
