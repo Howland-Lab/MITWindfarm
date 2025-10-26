@@ -24,8 +24,6 @@ def wake_model_args():
 
 @mark.parametrize('yturb, zturb, v4, w4', [(1, 1, 0, 0), (1, 0, 0.5, 0.0), (0, 1, -0.5, 0.0), (-1, 1, 0, 0.5), (1, -1, 0, -0.5), (-1, -1, 0.5, 0.5), (0, 0, -0.5, 0.5)])
 def test_v4_w4_centerline_wake(grid_info, wake_model, wake_model_args, yturb, zturb, v4, w4):
-    print("A")
-    print(yturb, zturb)
     # get data from fixtures
     xturb, _x, _y, _z, dx, dy, dz = grid_info
     yaw, tilt, Cp, Ct, Ctprime, an, u4, REWS = wake_model_args

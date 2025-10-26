@@ -10,7 +10,7 @@ python = "^3.9"
 numpy = ">=1.16.5"
 scipy = ">=1.6"
 mitrotor = { git = "https://github.com/Howland-Lab/MITRotor.git", branch = "sg/tilted_BEM"}
-unified-momentum-model = { git = "https://github.com/Howland-Lab/Unified-Momentum-Model.git"}
+unified-momentum-model = { git = "https://github.com/Howland-Lab/Unified-Momentum-Model.git", branch = "sg/curled_wave_dev"}
 # [tool.poetry.group.dev.dependencies]
 ipython = { version = "^8", optional = true}
 jupyter = { version = "^1.0.0", optional = true}

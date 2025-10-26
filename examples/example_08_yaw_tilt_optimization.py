@@ -7,13 +7,18 @@ from mitwindfarm import Plotting
 from mitwindfarm.windfarm import Windfarm, WindfarmSolution, Layout
 from mitwindfarm.Rotor import BEM
 from MITRotor.ReferenceTurbines import IEA15MW
+from MITRotor.Momentum import UnifiedMomentum
 # from rich import print
 import numpy as np
 
 FIGDIR = Path(__file__).parent.parent / "fig"
 FIGDIR.mkdir(exist_ok=True, parents=True)
 
-windfarm = Windfarm(rotor_model=BEM(IEA15MW()), TIamb=0.1)
+momentum_model= UnifiedMomentum(averaging = "rotor")
+windfarm = Windfarm(
+    rotor_model=BEM(IEA15MW(), momentum_model = momentum_model),
+    TIamb=0.1,
+)
 layout = Layout([0, 12, 24], [0.0, 0.0, 0.0], [0.0, 0.5, 1.0])
 
 
@@ -29,6 +34,8 @@ def objective_func(x):
 
 if __name__ == "__main__":
     x0 = [0, 7, 0, 0, 7, 0, 0, 7, 0]
+
+
     sol = minimize(
         objective_func,
         x0,
