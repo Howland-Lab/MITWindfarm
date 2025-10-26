@@ -10,6 +10,7 @@ from MITRotor.ReferenceTurbines import IEA15MW
 from MITRotor.Momentum import UnifiedMomentum
 # from rich import print
 import numpy as np
+import time
 
 FIGDIR = Path(__file__).parent.parent / "fig"
 FIGDIR.mkdir(exist_ok=True, parents=True)
@@ -35,6 +36,7 @@ def objective_func(x):
 if __name__ == "__main__":
     x0 = [0, 7, 0, 0, 7, 0, 0, 7, 0]
 
+    start = time.time()
 
     sol = minimize(
         objective_func,
@@ -51,7 +53,10 @@ if __name__ == "__main__":
             (-np.deg2rad(15), np.deg2rad(15)),
         ],
     )
+    end = time.time()
+
     print(sol)
+    print("Optimization runtime: ", end - start)
 
     windfarm_sol_ref = solve_for_setpoints(x0)
     windfarm_sol_opt = solve_for_setpoints(sol.x)
