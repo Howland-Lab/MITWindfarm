@@ -2218,7 +2218,7 @@ unified-momentum-model = {git = "https://github.com/Howland-Lab/Unified-Momentum
 type = "git"
 url = "https://github.com/Howland-Lab/MITRotor.git"
 reference = "sg/tilted_BEM"
-resolved_reference = "cda596578096284ec67846d9694b5a23fdcaec74"
+resolved_reference = "718adaffdc362318e21f62f0073359afdb9b6162"
 
 [[package]]
 name = "mypy"

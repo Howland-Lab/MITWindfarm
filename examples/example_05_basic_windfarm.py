@@ -14,8 +14,8 @@ if __name__ == "__main__":
     windfarm = Windfarm(rotor_model=BEM(IEA15MW()))
 
     setpoints = [ # pitch, tsr, yaw, tilt
-        (0, 7, 0, np.deg2rad(20)),
-        (0, 7, np.deg2rad(10), 0),
+        (0, 7, 0, 0),
+        (0, 7, 0, 0),
         (0, 7, 0, 0),
     ]
 
