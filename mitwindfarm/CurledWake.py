@@ -23,7 +23,7 @@ from mitwindfarm.utils.integrate import (
     IntegrationException,
     DomainExpansionRequest,
 )
-from UnifiedMomentumModel.Utilities.Geometry import calc_eff_yaw, eff_yaw_inv_rotation
+from UnifiedMomentumModel.Utilities.Geometry import calc_eff_yaw, eff_yaw_rotation, eff_yaw_inv_rotation
 from mitwindfarm.utils.differentiate import second_der
 
 
@@ -219,16 +219,19 @@ class CurledWakeWindfield(Windfield):
             if self.use_r4
             else D / 2
         )
-        ay = r4 * np.cos(rotor.yaw)
-        az = r4 * np.cos(rotor.tilt)
+        # calculate yaw angle in "yaw-only" frame
+        eff_yaw = calc_eff_yaw(rotor.yaw, rotor.tilt)
+        # create stencil
         shape = ic_stencil(
             self.grid[1],
             self.grid[2],
             yt,
             zt,
             smooth_fact=smooth_fact,
-            ay=ay,
-            az=az,
+            r4 = r4,
+            eff_yaw = eff_yaw,
+            yaw = rotor.yaw,
+            tilt = rotor.tilt,
         )
 
         # stamp the rotor solution into the wind field
@@ -247,7 +250,6 @@ class CurledWakeWindfield(Windfield):
         # along z-axis in yaw-only frame (also the radial distance of each point from center in any frame)
         r_i = np.linspace(-(D - d_yx) / 2, (D - d_yx) / 2, self.N_vortex)
         # rotate points into yaw-and-tilt frame
-        eff_yaw = calc_eff_yaw(rotor.yaw, rotor.tilt)
         _, y_i, z_i = eff_yaw_inv_rotation(np.zeros_like(r_i), np.zeros_like(r_i), r_i, eff_yaw, rotor.yaw, rotor.tilt)
         # NOTE: rotor.Ct differs from Shapiro et al. (2018) definition - includes cos^2(eff_yaw)
         Gamma_0 = 0.5 * D * rotor.REWS * rotor.Ct * np.sin(eff_yaw)
@@ -820,7 +822,7 @@ def check_state_bounds(state, thresh=1e-4):
     return expand_y, expand_z
 
 
-def ic_stencil(y, z, yt, zt, smooth_fact=1, ay=0.5, az=None) -> np.ndarray:
+def ic_stencil(y, z, yt, zt, smooth_fact=1, r4 = 0.5, eff_yaw = 0.0, yaw = 0.0, tilt = 0.0) -> np.ndarray:
     """
     Stencil for turbine initial condition. This is a 2D Gaussian kernel that is
     convolved with an indicator function.
@@ -832,20 +834,22 @@ def ic_stencil(y, z, yt, zt, smooth_fact=1, ay=0.5, az=None) -> np.ndarray:
     - ay: Width of the stencil in the y-direction (default: 0.5).
     - az: Width of the stencil in the z-direction (default: ay).
     """
-    az = ay if az is None else az
-
     yG, zG = np.meshgrid(y, z, indexing="ij")
     dy = y[1] - y[0]
     dz = z[1] - z[0]  # assume these are equally spaced axes
     kernel_y = np.arange(-10, 11)[:, None] * dy
     kernel_z = np.arange(-10, 11)[None, :] * dz
 
-    turb = (((yG - yt) / ay) ** 2 + ((zG - zt) / az) ** 2) < 1.0
+    # determine if points are in the turbine when rotated into the "yaw-only" frame
+    ay, az = r4 * np.cos(eff_yaw), r4
+    _, yvals, z_vals = eff_yaw_rotation(np.ones_like(yG), yG - yt, zG - zt, eff_yaw, yaw, tilt)
+    turb = ((yvals / ay) ** 2 + (z_vals / az) ** 2) < 1.0
+    # create gaussian in the ground frame
     gauss = np.exp(
         -(kernel_y**2 + kernel_z**2) / (np.sqrt(dy * dz) * smooth_fact) ** 2 / 2
     )
     gauss /= np.sum(gauss)  # make sure this is normalized to 1
-    return convolve2d(turb, gauss, "same")
+    return convolve2d(turb, gauss, "same") # smooth edges of gaussian
 
 
 def get_wake_bounds_y(du, thresh=0.05, relative=True):
