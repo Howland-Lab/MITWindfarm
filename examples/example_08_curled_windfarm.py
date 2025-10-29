@@ -34,8 +34,8 @@ def plot_example(powerlaw=False):
     wf_gauss = Windfarm(TIamb=0.05)  # 5% ambient TI, default model is Gaussian wake
     layout = Layout([0, 5, 10], [0, 0.4, 0.8], [zhub, zhub, zhub])  # non-dim by diameter D
     setpoints = [  # for UnifiedAD_TI() rotor, set points are (Ctprime, yaw, tilt) tuple pairs
-        (2, np.radians(30), np.radians(0)),
-        (2, np.radians(15), np.radians(0)),
+        (2, np.radians(30), np.radians(20)),
+        (2, np.radians(15), np.radians(10)),
         (2, 0, 0),
     ]  #  Example setpoints for three turbines
 
