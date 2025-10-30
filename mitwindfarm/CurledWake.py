@@ -23,6 +23,7 @@ from mitwindfarm.utils.integrate import (
     IntegrationException,
     DomainExpansionRequest,
 )
+from UnifiedMomentumModel.Utilities.Geometry import calc_eff_yaw, eff_yaw_rotation, eff_yaw_inv_rotation
 from mitwindfarm.utils.differentiate import second_der
 
 
@@ -218,47 +219,42 @@ class CurledWakeWindfield(Windfield):
             if self.use_r4
             else D / 2
         )
-        ay = r4 * np.cos(rotor.yaw)
-        az = r4  # TODO: could factor in rotor tilt later on
+        # calculate yaw angle in "yaw-only" frame
+        eff_yaw = calc_eff_yaw(rotor.yaw, rotor.tilt)
+        # create stencil
         shape = ic_stencil(
             self.grid[1],
             self.grid[2],
             yt,
             zt,
             smooth_fact=smooth_fact,
-            ay=ay,
-            az=az,
+            r4 = r4,
+            eff_yaw = eff_yaw,
+            yaw = rotor.yaw,
+            tilt = rotor.tilt,
         )
 
-        if self.ic_method == "fx":
-            # NOTE: DO NOT USE
-            thrust = -rotor.Ct * 0.5 * np.pi / 4
-            self.extra_fx += (
-                shape * thrust / (np.sum(shape) * self.dy * self.dz * self.dx)
-            )
-            warn(
-                "`fx` is not a reliable method for stamping initial conditions. Use `du` instead."
-            )
-        else:
-            # stamp the rotor solution into the wind field
-            # TODO: check du is negative?
-            delta_u = rotor.u4 - rotor.REWS  # delta_u, adjusted by REWS
-            self.du[-1, ...] += shape * delta_u
+        # stamp the rotor solution into the wind field
+        # TODO: check du is negative?
+        delta_u = rotor.u4 - rotor.REWS  # delta_u, adjusted by REWS
+        self.du[-1, ...] += shape * delta_u
 
         # dv, dw initial conditions:
-        if rotor.yaw == 0:
+        if (rotor.yaw == 0) and (rotor.tilt == 0):
             return  # no additional dv, dw to stamp in for this turbine
 
         # TODO: Put this in a separate module
-        # self.N_vortex = 10  # make this a parameter
-        # self.vortex_sigma = 0.2  # sigma/D, for de-singularization
 
         # r-axis: clip edges to prevent singularities
-        r_i = np.linspace(-(D - self.dz) / 2, (D - self.dz) / 2, self.N_vortex)
-        # NOTE: rotor.Ct differs from Shapiro et al. (2018) definition - includes cos^2(yaw)
-        Gamma_0 = 0.5 * D * rotor.REWS * rotor.Ct * np.sin(rotor.yaw)
+        d_yx = np.maximum(self.dy, self.dz)
+        # along z-axis in yaw-only frame (also the radial distance of each point from center in any frame)
+        r_i = np.linspace(-(D - d_yx) / 2, (D - d_yx) / 2, self.N_vortex)
+        # rotate points into yaw-and-tilt frame
+        _, y_i, z_i = eff_yaw_inv_rotation(np.zeros_like(r_i), np.zeros_like(r_i), r_i, eff_yaw, rotor.yaw, rotor.tilt)
+        # NOTE: rotor.Ct differs from Shapiro et al. (2018) definition - includes cos^2(eff_yaw)
+        Gamma_0 = 0.5 * D * rotor.REWS * rotor.Ct * np.sin(eff_yaw)
         Gamma_i = (
-            Gamma_0 * 4 * r_i / (self.N_vortex * D**2 * np.sqrt(1 - (2 * r_i / D) ** 2))
+            Gamma_0 * 4 * r_i / (self.N_vortex * D * np.sqrt(1 - (2 * r_i / D) ** 2))
         )
 
         # generally, vortices can decay, so sigma should be a function of x  # TODO
@@ -268,7 +264,8 @@ class CurledWakeWindfield(Windfield):
         yG, zG = np.meshgrid(self.grid[1], self.grid[2], indexing="ij")
         yG = yG[..., None]
         zG = zG[..., None]
-        rsq = (yG - yt) ** 2 + (zG - zt - r_i[None, None, :]) ** 2  # 3D grid variable
+
+        rsq = (yG - yt - y_i[None, None, :]) ** 2 + (zG - zt - z_i[None, None, :]) ** 2  # 3D grid variable
         rsq = np.clip(rsq, 1e-8, None)  # avoid singularities
 
         # put pieces together:
@@ -276,8 +273,8 @@ class CurledWakeWindfield(Windfield):
         summation = exponent / (2 * np.pi * rsq) * Gamma_i[None, None, :]
 
         # sum all vortices along last dim
-        v = np.sum(summation * (zG - zt - r_i[None, None, :]), axis=-1)
-        w = np.sum(summation * -(yG - yt), axis=-1)
+        v = np.sum(summation * (zG - zt - z_i[None, None, :]), axis=-1)
+        w = np.sum(summation * -(yG - yt - y_i[None, None, :]), axis=-1)
         self.dv[-1, ...] += v  # stamp in dv
         self.dw[-1, ...] += w  # stamp in dw
 
@@ -825,7 +822,7 @@ def check_state_bounds(state, thresh=1e-4):
     return expand_y, expand_z
 
 
-def ic_stencil(y, z, yt, zt, smooth_fact=1, ay=0.5, az=None) -> np.ndarray:
+def ic_stencil(y, z, yt, zt, smooth_fact=1, r4 = 0.5, eff_yaw = 0.0, yaw = 0.0, tilt = 0.0) -> np.ndarray:
     """
     Stencil for turbine initial condition. This is a 2D Gaussian kernel that is
     convolved with an indicator function.
@@ -837,21 +834,22 @@ def ic_stencil(y, z, yt, zt, smooth_fact=1, ay=0.5, az=None) -> np.ndarray:
     - ay: Width of the stencil in the y-direction (default: 0.5).
     - az: Width of the stencil in the z-direction (default: ay).
     """
-    az = ay if az is None else az
-
     yG, zG = np.meshgrid(y, z, indexing="ij")
     dy = y[1] - y[0]
     dz = z[1] - z[0]  # assume these are equally spaced axes
     kernel_y = np.arange(-10, 11)[:, None] * dy
     kernel_z = np.arange(-10, 11)[None, :] * dz
 
-    # turb = ((yG - yt) ** 2 + (zG - zt) ** 2) < R**2
-    turb = (((yG - yt) / ay) ** 2 + ((zG - zt) / az) ** 2) < 1.0
+    # determine if points are in the turbine when rotated into the "yaw-only" frame
+    ay, az = r4 * np.cos(eff_yaw), r4
+    _, yvals, z_vals = eff_yaw_rotation(np.ones_like(yG), yG - yt, zG - zt, eff_yaw, yaw, tilt)
+    turb = ((yvals / ay) ** 2 + (z_vals / az) ** 2) < 1.0
+    # create gaussian in the ground frame
     gauss = np.exp(
         -(kernel_y**2 + kernel_z**2) / (np.sqrt(dy * dz) * smooth_fact) ** 2 / 2
     )
     gauss /= np.sum(gauss)  # make sure this is normalized to 1
-    return convolve2d(turb, gauss, "same")
+    return convolve2d(turb, gauss, "same") # smooth edges of gaussian
 
 
 def get_wake_bounds_y(du, thresh=0.05, relative=True):

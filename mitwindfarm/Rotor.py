@@ -240,7 +240,7 @@ class UnifiedAD_TI(UnifiedAD):
             self._model = UnifiedMomentumTI_x0(beta=beta, alpha=alpha)
 
     def __call__(
-        self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw
+        self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw = 0, tilt = 0,
     ) -> RotorSolution:
         """
         Calculate the rotor solution for given Ctprime and yaw inputs.
@@ -263,7 +263,7 @@ class UnifiedAD_TI(UnifiedAD):
 
         REWS = self.rotor_grid.average(Us)
         RETI = np.sqrt(self.rotor_grid.average(TIs**2))
-        sol = self._model(Ctprime, yaw, TI=RETI)
+        sol = self._model(Ctprime, yaw = yaw, tilt = tilt, TI=RETI)
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
@@ -275,6 +275,8 @@ class UnifiedAD_TI(UnifiedAD):
             sol.u4 * REWS,
             sol.v4 * REWS,
             REWS,
+            tilt = tilt,
+            w4 = sol.w4 * REWS,
             TI=RETI,
             extra=sol,
         )
@@ -325,10 +327,6 @@ class BEM(Rotor):
         Calculate the RotorSolution for given pitch, TSR, and yaw inputs.
         See above class documentation on __call__ for more details.
         """
-        if tilt != 0:
-            warnings.warn("Non-zero tilt is not yet implemented for BEM. Setting tilt to zero.", UserWarning)
-            tilt = 0
-
         xs_glob = self.xgrid_loc + x
         ys_glob = self.ygrid_loc + y
         zs_glob = self.zgrid_loc + z
@@ -339,7 +337,7 @@ class BEM(Rotor):
         RETI = np.sqrt(self._model.geometry.rotor_average(self._model.geometry.annulus_average(TIs**2)))
 
         wdir = windfield.wdir(xs_glob, ys_glob, zs_glob)
-        sol: BEMSolution = self._model(pitch, tsr, yaw, Us / REWS, wdir)
+        sol: BEMSolution = self._model(pitch, tsr, yaw = yaw, tilt = tilt, U = Us / REWS, wdir = wdir)
         return RotorSolution(
             yaw,
             sol.Cp() * REWS**3,
@@ -349,6 +347,8 @@ class BEM(Rotor):
             sol.u4 * REWS,
             sol.v4 * REWS,
             REWS,
+            tilt = tilt,
+            w4 = sol.w4 * REWS,
             TI=RETI,
             extra=sol,
         )
@@ -472,30 +472,17 @@ class UnifiedMomentumTI_x0(UnifiedMomentum):
         )
         self.alpha = alpha
 
-    def initial_guess(self, Ctprime, yaw, TI):
-        return super().initial_guess(Ctprime, yaw)
-
-    def residual(
-        self, x: np.ndarray, Ctprime: float, yaw: float, TI: float = 0
-    ):
-        """
-        Returns the residuals of the Unified Momentum Model for the fixed point
-        iteration. The equations referred to in this function are from the
-        associated paper.
-        """
-        return super().residual(x, Ctprime, yaw)  # TI unused here; decoupled
-
-    def post_process(self, result, Ctprime, yaw, TI):
+    def post_process(self, result, Ctprime, yaw = 0, tilt = 0, TI = 0, **kwargs):
         a, u4, v4, _x0, dp = result.x
         x0 = (
-            np.cos(yaw)
+            np.cos(self.eff_yaw)
             / 4
             * (1 + u4)
-            * np.sqrt((1 - a) * np.cos(yaw) / (1 + u4))
+            * np.sqrt((1 - a) * np.cos(self.eff_yaw) / (1 + u4))
             / (self.beta * np.abs(1 - u4) / 2 + self.alpha * TI)
         )  # re-compute x0 with TI influence decoupled
         result.x = (a, u4, v4, x0, dp)
-        return super().post_process(result, Ctprime, yaw)
+        return super().post_process(result, Ctprime, yaw = yaw, tilt = tilt, **kwargs)
 
 
 class UnifiedMomentumTI(UnifiedMomentum):
@@ -507,11 +494,8 @@ class UnifiedMomentumTI(UnifiedMomentum):
         super().__init__(beta=beta, **kwargs)
         self.alpha = alpha
 
-    def initial_guess(self, Ctprime, yaw, TI):
-        return super().initial_guess(Ctprime, yaw)
-
     def residual(
-        self, x: np.ndarray, Ctprime: float, yaw: float, TI: float = 0
+        self, x: np.ndarray, Ctprime: float, TI: float = 0, **kwargs
     ):
         """
         Returns the residuals of the Unified Momentum Model for the fixed point
@@ -522,14 +506,14 @@ class UnifiedMomentumTI(UnifiedMomentum):
         if type(Ctprime) is float and Ctprime == 0:
             return 0 - an, 1 - u4, 0 - v4, 100 - x0, 0 - dp
 
-        p_g = self._nonlinear_pressure(Ctprime, yaw, an, x0)
+        p_g = self._nonlinear_pressure(Ctprime, self.eff_yaw, an, x0)
 
         # Eq. 4 - Near wake length in residual form, includes alpha term.
         e_x0 = (
-            np.cos(yaw)
+            np.cos(self.eff_yaw)
             / 4
             * (1 + u4)
-            * np.sqrt((1 - an) * np.cos(yaw) / (1 + u4))
+            * np.sqrt((1 - an) * np.cos(self.eff_yaw) / (1 + u4))
             / (self.beta * np.abs(1 - u4) / 2 + self.alpha * TI)
         ) - x0
 
@@ -537,18 +521,18 @@ class UnifiedMomentumTI(UnifiedMomentum):
         e_an = (
             1
             - np.sqrt(
-                -dp / (0.5 * Ctprime * np.cos(yaw) ** 2)
-                + (1 - u4**2 - v4**2) / (Ctprime * np.cos(yaw) ** 2)
+                -dp / (0.5 * Ctprime * np.cos(self.eff_yaw) ** 2)
+                + (1 - u4**2 - v4**2) / (Ctprime * np.cos(self.eff_yaw) ** 2)
             )
         ) - an
 
         # Eq. 2 - Streamwise outlet velocity in residual form.
         e_u4 = (
-            -(1 / 4) * Ctprime * (1 - an) * np.cos(yaw) ** 2
+            -(1 / 4) * Ctprime * (1 - an) * np.cos(self.eff_yaw) ** 2
             + (1 / 2)
             + (1 / 2)
             * np.sqrt(
-                (1 / 2 * Ctprime * (1 - an) * np.cos(yaw) ** 2 - 1) ** 2 - (4 * dp)
+                (1 / 2 * Ctprime * (1 - an) * np.cos(self.eff_yaw) ** 2 - 1) ** 2 - (4 * dp)
             )
         ) - u4
 
@@ -558,8 +542,8 @@ class UnifiedMomentumTI(UnifiedMomentum):
             * (1 / 4)
             * Ctprime
             * (1 - an) ** 2
-            * np.sin(yaw)
-            * np.cos(yaw) ** 2
+            * np.sin(self.eff_yaw)
+            * np.cos(self.eff_yaw) ** 2
             - v4
         )
 
@@ -569,13 +553,10 @@ class UnifiedMomentumTI(UnifiedMomentum):
                 -(1 / (2 * np.pi))
                 * Ctprime
                 * (1 - an) ** 2
-                * np.cos(yaw) ** 2
+                * np.cos(self.eff_yaw) ** 2
                 * np.arctan(1 / (2 * x0))
             )
             + p_g
         ) - dp
 
         return e_an, e_u4, e_v4, e_x0, e_dp
-
-    def post_process(self, result, Ctprime, yaw, TI):
-        return super().post_process(result, Ctprime, yaw)

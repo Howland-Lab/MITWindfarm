@@ -20,7 +20,7 @@ def plot_example(powerlaw=False):
         zhub = 0
         base_windfield = Uniform(TIamb=0.05)  # 5% ambient TI
 
-    wf = CurledWindfarm(
+    wf_curled = CurledWindfarm(
         rotor_model=UnifiedAD_TI(),
         base_windfield=base_windfield,
         solver_kwargs=dict(
@@ -33,45 +33,67 @@ def plot_example(powerlaw=False):
     )
     wf_gauss = Windfarm(TIamb=0.05)  # 5% ambient TI, default model is Gaussian wake
     layout = Layout([0, 5, 10], [0, 0.4, 0.8], [zhub, zhub, zhub])  # non-dim by diameter D
-    setpoints = [  # for UnifiedAD_TI() rotor, set points are (Ctprime, yaw) tuple pairs
-        (2, np.radians(30)),
-        (2, np.radians(15)),
-        (2, 0),
-    ]  #  Example setpoints for two turbines
+    setpoints = [  # for UnifiedAD_TI() rotor, set points are (Ctprime, yaw, tilt) tuple pairs
+        (2, np.radians(30), np.radians(20)),
+        (2, np.radians(15), np.radians(10)),
+        (2, 0, 0),
+    ]  #  Example setpoints for three turbines
 
     # compute windfarm solutions (Cp)
     wf_solutions = []
-    for name, _wf in zip(["Curl", "Gauss"], [wf, wf_gauss]):
+    for name, _wf in zip(["Curl", "Gauss"], [wf_curled, wf_gauss]):
         time_st = time.time()
         sol = _wf(layout, setpoints)
         print(f"Windfarm solution for {name} in {time.time() - time_st:.2f} seconds")
         wf_solutions.append((name, sol))
 
-    # plot the comparison: wind speed and power
-    fig, axarr = plt.subplots(
-        figsize=(4 * len(wf_solutions), 4),
-        nrows=2,
+    # plot the comparison: wind speed (streamwise slice) and power
+    fig1, axarr1 = plt.subplots(
+        figsize=(4 * len(wf_solutions), 6),
+        nrows=3,
         ncols=len(wf_solutions),
         sharex=True,
         sharey="row",
-        height_ratios=(1, 2),
+        height_ratios=(1, 1, 2),
     )
-    for axs, (name, sol) in zip(axarr.T, wf_solutions):
-        plot_windfarm(sol, ax=axs[0], pad=2, axis=True)
+    for axs, (name, sol) in zip(axarr1.T, wf_solutions):
+        plot_windfarm(sol, ax=axs[0], z = zhub, pad=2, axis=True)
+        y_plot_val = 0
+        plot_windfarm(sol, ax=axs[1], y = y_plot_val, pad=2, axis=True)
         axs[0].set_xlabel("$x/D$")
-        axs[0].set_title(name)
+        axs[1].set_xlabel("$x/D$")
+        axs[0].set_title(name + f" at z = {zhub}")
+        axs[1].set_title(name + f" at y = {y_plot_val}")
         # plot power per turbine
-        axs[1].bar(layout.x, [r.Cp for r in sol.rotors], width=2)
-        if np.all(axs == (axarr.T)[0]):  # only label the first columns
+        axs[2].bar(layout.x, [r.Cp for r in sol.rotors], width=2)
+        if np.all(axs == (axarr1.T)[0]):  # only label the first columns
             axs[0].set_ylabel("$y/D$")
-            axs[1].set_ylabel("$C_P$")
-        axs[1].set_xticks(layout.x)
-        axs[1].set_xticklabels(np.arange(len(layout.x)) + 1)
-        axs[1].set_xlabel("Turbine row")
+            axs[1].set_ylabel("$z/D$")
+            axs[2].set_ylabel("$C_P$")
+        axs[2].set_xticks(layout.x)
+        axs[2].set_xticklabels(np.arange(len(layout.x)) + 1)
+        axs[2].set_xlabel("Turbine row")
 
-    plt.savefig(FIGDIR / f"{Path(__file__).stem}.png", bbox_inches="tight")
+    plt.savefig(FIGDIR / f"{Path(__file__).stem}1.png", bbox_inches="tight")
 
+    fig2, axarr2 = plt.subplots(
+        figsize=(4 * len(wf_solutions), 4),
+        nrows=1,
+        ncols=len(wf_solutions),
+        sharex=True,
+        sharey="row",
+    )
+    for axs, (name, sol) in zip(axarr2.T, wf_solutions):
+        # at first turbine's hub
+        x_plot_val = 4
+        plot_windfarm(sol, ax=axs, x = x_plot_val, pad=2, axis=True)
+        axs.set_title(name + f" at x = {x_plot_val}")
+        axs.set_xlabel("$y/D$")
+        axs.set_ylabel("$z/D$")
+
+    
+    plt.savefig(FIGDIR / f"{Path(__file__).stem}2.png", bbox_inches="tight")
 
 if __name__ == "__main__":
-    plot_example(powerlaw=True)
+    plot_example(powerlaw=False)
     plt.close()
