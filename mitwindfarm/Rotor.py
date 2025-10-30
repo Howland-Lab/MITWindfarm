@@ -471,22 +471,6 @@ class UnifiedMomentumTI_x0(UnifiedMomentum):
             beta=beta, cached=cached, v4_correction=v4_correction, **kwargs
         )
         self.alpha = alpha
-    
-    def pre_process(self, *args, **kwargs):
-        return super().pre_process(*args, **kwargs)
-
-    def initial_guess(self, *args, **kwargs):
-        return super().initial_guess(*args, **kwargs)
-
-    def residual(
-        self, *args: float, **kwargs: float
-    ):
-        """
-        Returns the residuals of the Unified Momentum Model for the fixed point
-        iteration. The equations referred to in this function are from the
-        associated paper.
-        """
-        return super().residual(*args, **kwargs)  # TI unused here; decoupled
 
     def post_process(self, result, Ctprime, yaw = 0, tilt = 0, TI = 0, **kwargs):
         a, u4, v4, _x0, dp = result.x
@@ -509,12 +493,6 @@ class UnifiedMomentumTI(UnifiedMomentum):
     def __init__(self, beta=0.1403, alpha=2.32, **kwargs):
         super().__init__(beta=beta, **kwargs)
         self.alpha = alpha
-
-    def pre_process(self, Ctprime, **kwargs):
-        return super().pre_process(Ctprime, **kwargs)
-
-    def initial_guess(self, Ctprime, *args, **kwargs):
-        return super().initial_guess(Ctprime, *args, **kwargs)
 
     def residual(
         self, x: np.ndarray, Ctprime: float, TI: float = 0, **kwargs
@@ -582,6 +560,3 @@ class UnifiedMomentumTI(UnifiedMomentum):
         ) - dp
 
         return e_an, e_u4, e_v4, e_x0, e_dp
-
-    def post_process(self, result, Ctprime, yaw, tilt: float = 0, **kwargs):
-        return super().post_process(result, Ctprime, yaw = yaw, tilt = tilt, **kwargs)
