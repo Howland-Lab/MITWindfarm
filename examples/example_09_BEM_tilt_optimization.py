@@ -8,7 +8,7 @@ from mitwindfarm.windfarm import Windfarm, WindfarmSolution, Layout
 from mitwindfarm.Rotor import BEM
 from MITRotor.ReferenceTurbines import IEA15MW
 from MITRotor.Momentum import UnifiedMomentum
-# from rich import print
+from rich import print
 import numpy as np
 
 FIGDIR = Path(__file__).parent.parent / "fig"

@@ -2,6 +2,7 @@ from pytest import fixture, mark, approx
 import numpy as np
 from mitwindfarm import RotorSolution, GaussianWakeModel
 
+# helper functions to test tilt
 @fixture
 def grid_info():
     xturb = 1
@@ -21,7 +22,7 @@ def wake_model_args():
     an, u4, REWS = 0.3, 0.5, 1.0
     return yaw, tilt, Cp, Ct, Ctprime, an, u4, REWS
 
-
+# test that wake follows centerline as provided by v4 and w4
 @mark.parametrize('yturb, zturb, v4, w4', [(1, 1, 0, 0), (1, 0, 0.5, 0.0), (0, 1, -0.5, 0.0), (-1, 1, 0, 0.5), (1, -1, 0, -0.5), (-1, -1, 0.5, 0.5), (0, 0, -0.5, 0.5)])
 def test_v4_w4_centerline_wake(grid_info, wake_model, wake_model_args, yturb, zturb, v4, w4):
     # get data from fixtures

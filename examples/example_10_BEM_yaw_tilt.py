@@ -9,7 +9,7 @@ from mitwindfarm.Rotor import BEM
 from MITRotor.Momentum import UnifiedMomentum
 from MITRotor.ReferenceTurbines import IEA15MW
 from UnifiedMomentumModel.Utilities.Geometry import calc_eff_yaw
-# from rich import print
+from rich import print
 import numpy as np
 
 FIGDIR = Path(__file__).parent.parent / "fig"
