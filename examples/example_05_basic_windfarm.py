@@ -1,4 +1,5 @@
 from pathlib import Path
+import numpy as np
 
 import matplotlib.pyplot as plt
 from MITRotor import IEA15MW
@@ -12,10 +13,10 @@ FIGDIR.mkdir(exist_ok=True, parents=True)
 if __name__ == "__main__":
     windfarm = Windfarm(rotor_model=BEM(IEA15MW()))
 
-    setpoints = [
-        (0, 7, 0),
-        (0, 7, 0),
-        (0, 7, 0),
+    setpoints = [ # pitch, tsr, yaw, tilt
+        (0, 7, 0, 0),
+        (0, 7, 0, 0),
+        (0, 7, 0, 0),
     ]
 
     layout = Layout([0, 12 / 2, 24 / 2], [0, 0, 0])

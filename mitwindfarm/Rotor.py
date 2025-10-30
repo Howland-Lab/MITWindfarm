@@ -327,10 +327,6 @@ class BEM(Rotor):
         Calculate the RotorSolution for given pitch, TSR, and yaw inputs.
         See above class documentation on __call__ for more details.
         """
-        if tilt != 0:
-            warnings.warn("Non-zero tilt is not yet implemented for BEM. Setting tilt to zero.", UserWarning)
-            tilt = 0
-
         xs_glob = self.xgrid_loc + x
         ys_glob = self.ygrid_loc + y
         zs_glob = self.zgrid_loc + z
@@ -341,7 +337,7 @@ class BEM(Rotor):
         RETI = np.sqrt(self._model.geometry.rotor_average(self._model.geometry.annulus_average(TIs**2)))
 
         wdir = windfield.wdir(xs_glob, ys_glob, zs_glob)
-        sol: BEMSolution = self._model(pitch, tsr, yaw, Us / REWS, wdir)
+        sol: BEMSolution = self._model(pitch, tsr, yaw = yaw, tilt = tilt, U = Us / REWS, wdir = wdir)
         return RotorSolution(
             yaw,
             sol.Cp() * REWS**3,
@@ -351,6 +347,8 @@ class BEM(Rotor):
             sol.u4 * REWS,
             sol.v4 * REWS,
             REWS,
+            tilt = tilt,
+            w4 = sol.w4 * REWS,
             TI=RETI,
             extra=sol,
         )
