@@ -2200,7 +2200,7 @@ typing-extensions = {version = "*", markers = "python_version < \"3.11\""}
 
 [[package]]
 name = "mitrotor"
-version = "0.1.1"
+version = "0.2.1"
 description = ""
 optional = false
 python-versions = "^3.8"
@@ -2212,13 +2212,13 @@ develop = false
 numpy = ">=1.16.5"
 pyyaml = "^6.0.1"
 scipy = ">=1.6"
-unified-momentum-model = {git = "https://github.com/Howland-Lab/Unified-Momentum-Model.git", branch = "sg/curled_wave_dev"}
+unified-momentum-model = {git = "https://github.com/Howland-Lab/Unified-Momentum-Model.git"}
 
 [package.source]
 type = "git"
 url = "https://github.com/Howland-Lab/MITRotor.git"
-reference = "sg/curled_wave_dev"
-resolved_reference = "e773a7d2fa38694d54c64be972a9e01429917b42"
+reference = "HEAD"
+resolved_reference = "452992865f68f7a74a19fdab55b36f9bf77328d0"
 
 [[package]]
 name = "mypy"
@@ -4288,8 +4288,8 @@ figures = ["dualitic @ git+https://github.com/jaimeliew1/Dualitic.git", "ipykern
 [package.source]
 type = "git"
 url = "https://github.com/Howland-Lab/Unified-Momentum-Model.git"
-reference = "sg/curled_wave_dev"
-resolved_reference = "75226c89439f4c57a6f26ac2354493ea33cd8c24"
+reference = "HEAD"
+resolved_reference = "e55945a541db1a88d70b34f408dbf26a772f1c2c"
 
 [[package]]
 name = "uri-template"
@@ -4424,4 +4424,4 @@ examples = ["matplotlib"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.9"
-content-hash = "0b5ac2037426e1aae7aa76e2bc14542670e07f78ff466bebefbd3571192b32f8"
+content-hash = "998ce3ac791e098ab649fa2ef5511a6c76138ae47222af93cfd94159004486bd"
