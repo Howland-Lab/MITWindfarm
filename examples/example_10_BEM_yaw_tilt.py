@@ -69,5 +69,5 @@ if __name__ == "__main__":
     axes[0, 2].set_title(f"Yaw {np.round(deg_yaw_tilt, decimals=1)}$^\circ$ & Tilt {np.round(deg_yaw_tilt, decimals=1)}$^\circ$\n$C_P$: {yaw_and_tilt_sol.Cp:2.3f}")
     plt.tight_layout()
     plt.savefig(
-        FIGDIR / "example_09_yaw_tilt_comparison.png", dpi=300, bbox_inches="tight"
+        FIGDIR / "example_10_yaw_tilt_comparison.png", dpi=300, bbox_inches="tight"
     )
