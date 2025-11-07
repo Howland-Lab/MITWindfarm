@@ -513,10 +513,6 @@ class CurledWakeWindfield(Windfield):
             flow = self.shared_flow_data
             for key in self.fields_to_integrate:
                 flow[key][..., ghost_id] = flow[key][..., mirror_id]
-                # flow[key][..., :ghost_id] = 0
-
-            # flow["dw"][..., :zid] = 0
-            # flow["w"][..., :zid] = 0
 
     def _return_derivatives(self, x) -> ArrayLike:
         """Returns a flattened array of the outputs from _step"""
@@ -1323,6 +1319,11 @@ def interpolate_lmix(du, y, k=0, fill_value=1.0, max_value=None, pad=True):
 
     y_mean = np.mean(y_bounds, axis=0)
     y_width = np.diff(y_bounds, axis=0).flatten()
+
+    # rare issue where width is zero? filter these out for now TODO
+    y_mean = y_mean[y_width > 0]
+    y_width = y_width[y_width > 0]
+
     f = make_interp_spline(
         y_mean,
         y_width,
