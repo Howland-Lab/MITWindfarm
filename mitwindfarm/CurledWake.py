@@ -275,11 +275,11 @@ class CurledWakeWindfield(Windfield):
         self.du[-1, ...] += shape * delta_u
 
         # dv, dw initial conditions:
-        if (rotor.yaw == 0) and (rotor.tilt == 0):
+        if eff_yaw == 0:
             return  # no additional dv, dw to stamp in for this turbine
 
         # NOTE: rotor.Ct differs from Shapiro et al. (2018) definition - includes cos^2(yaw) already
-        Gamma_0 = 0.5 * D * rotor.REWS * rotor.Ct * np.sin(rotor.yaw)
+        Gamma_0 = 0.5 * D * rotor.REWS * rotor.Ct * np.sin(eff_yaw)
 
         v, w = compute_vortex_field(
             self.y,
