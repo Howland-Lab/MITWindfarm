@@ -397,7 +397,7 @@ class CurledWakeWindfield(Windfield):
                     # if any of the checks fail, we need to expand the domain along those dimensions
                     ybnd, zbnd = np.max(check_yz, axis=0)
                     raise DomainExpansionRequest(
-                        f"Expanding domain at {x=:.2f}", expand_y=ybnd, expand_z=zbnd
+                        f"Expanding domain at x={x:.2f}", expand_y=ybnd, expand_z=zbnd
                     )
 
             # ========= assemble variables and fields =========
