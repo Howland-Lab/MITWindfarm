@@ -190,7 +190,6 @@ class UnifiedAD(Rotor):
         Calculate the rotor solution using the Unified Momentum Model for given Ctprime, yaw, and tilt inputs.
         See above class documentation on __call__ for more details.
         """
-        sol: MomentumSolution = self._model(Ctprime, yaw = yaw, tilt = tilt)
 
         # Get the points over rotor to be sampled in windfield
         xs_loc, ys_loc, zs_loc = self.rotor_grid.grid_points()
@@ -202,6 +201,7 @@ class UnifiedAD(Rotor):
 
         REWS = self.rotor_grid.average(Us)
         RETI = np.sqrt(self.rotor_grid.average(TIs**2))
+        sol: MomentumSolution = self._model(Ctprime, yaw = yaw, tilt = tilt, TI=RETI)
 
         # rotor solution is normalised by REWS. Convert normalisation to U_inf and return
         return RotorSolution(
@@ -302,10 +302,6 @@ class BEM(Rotor):
         Calculate the RotorSolution for given pitch, TSR, and yaw inputs.
         See above class documentation on __call__ for more details.
         """
-        if tilt != 0:
-            warnings.warn("Non-zero tilt is not yet implemented for BEM. Setting tilt to zero.", UserWarning)
-            tilt = 0
-
         xs_glob = self.xgrid_loc + x
         ys_glob = self.ygrid_loc + y
         zs_glob = self.zgrid_loc + z
@@ -316,7 +312,7 @@ class BEM(Rotor):
         RETI = np.sqrt(self._model.geometry.rotor_average(self._model.geometry.annulus_average(TIs**2)))
 
         wdir = windfield.wdir(xs_glob, ys_glob, zs_glob)
-        sol: BEMSolution = self._model(pitch, tsr, yaw, Us / REWS, wdir)
+        sol: BEMSolution = self._model(pitch, tsr, yaw = yaw, tilt = tilt, U = Us / REWS, wdir = wdir)
         return RotorSolution(
             yaw,
             sol.Cp() * REWS**3,
@@ -326,6 +322,8 @@ class BEM(Rotor):
             sol.u4 * REWS,
             sol.v4 * REWS,
             REWS,
+            tilt = tilt,
+            w4 = sol.w4 * REWS,
             TI=RETI,
             extra=sol,
         )
@@ -464,7 +462,7 @@ class UnifiedMomentumTI_x0(UnifiedMomentum):
         )
         self.alpha = alpha
 
-    def post_process(self, result, Ctprime, yaw=0, tilt=0, TI=0):
+    def post_process(self, result, Ctprime, yaw = 0, tilt = 0, TI = 0, **kwargs):
         a, u4, v4, _x0, dp = result.x
         x0 = (
             np.cos(self.eff_yaw)
@@ -474,7 +472,7 @@ class UnifiedMomentumTI_x0(UnifiedMomentum):
             / (self.beta * np.abs(1 - u4) / 2 + self.alpha * TI)
         )  # re-compute x0 with TI influence decoupled
         result.x = (a, u4, v4, x0, dp)
-        return super().post_process(result, Ctprime, yaw=yaw, tilt=tilt)
+        return super().post_process(result, Ctprime, yaw = yaw, tilt = tilt, **kwargs)
 
 
 class UnifiedMomentumTI(UnifiedMomentum):
@@ -515,7 +513,7 @@ class UnifiedMomentumTI(UnifiedMomentum):
         self.alpha = alpha
 
     def residual(
-        self, x: np.ndarray, Ctprime: float, yaw: float, TI: float = 0
+        self, x: np.ndarray, Ctprime: float, TI: float = 0, **kwargs
     ):
         """
         Returns the residuals of the Unified Momentum Model for the fixed point
@@ -580,6 +578,3 @@ class UnifiedMomentumTI(UnifiedMomentum):
         ) - dp
 
         return e_an, e_u4, e_v4, e_x0, e_dp
-
-    def post_process(self, result, Ctprime, yaw, TI=None):
-        return super().post_process(result, Ctprime, yaw)
