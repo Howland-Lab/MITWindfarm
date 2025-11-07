@@ -23,6 +23,7 @@ from mitwindfarm.utils.integrate import (
     IntegrationException,
     DomainExpansionRequest,
 )
+from UnifiedMomentumModel.Utilities.Geometry import calc_eff_yaw, eff_yaw_rotation, eff_yaw_inv_rotation
 from mitwindfarm.utils.differentiate import second_der
 
 
@@ -253,35 +254,28 @@ class CurledWakeWindfield(Windfield):
             if self.use_r4
             else D / 2
         )
-        ay = r4 * np.cos(rotor.yaw)
-        az = r4  # TODO: could factor in rotor tilt later on
+        # calculate yaw angle in "yaw-only" frame
+        eff_yaw = calc_eff_yaw(rotor.yaw, rotor.tilt)
+        # create stencil
         shape = ic_stencil(
             self.y,
             self.z,
             yt,
             zt,
             smooth_fact=smooth_fact,
-            ay=ay,
-            az=az,
+            r4 = r4,
+            eff_yaw = eff_yaw,
+            yaw = rotor.yaw,
+            tilt = rotor.tilt,
         )
 
-        if self.ic_method == "fx":
-            # NOTE: DO NOT USE
-            thrust = -rotor.Ct * 0.5 * np.pi / 4
-            self.extra_fx += (
-                shape * thrust / (np.sum(shape) * self.dy * self.dz * self.dx)
-            )
-            warn(
-                "`fx` is not a reliable method for stamping initial conditions. Use `du` instead."
-            )
-        else:
-            # stamp the rotor solution into the wind field
-            # TODO: check du is negative?
-            delta_u = rotor.u4 - rotor.REWS  # delta_u, adjusted by REWS
-            self.du[-1, ...] += shape * delta_u
+        # stamp the rotor solution into the wind field
+        # TODO: check du is negative?
+        delta_u = rotor.u4 - rotor.REWS  # delta_u, adjusted by REWS
+        self.du[-1, ...] += shape * delta_u
 
         # dv, dw initial conditions:
-        if rotor.yaw == 0:
+        if (rotor.yaw == 0) and (rotor.tilt == 0):
             return  # no additional dv, dw to stamp in for this turbine
 
         # NOTE: rotor.Ct differs from Shapiro et al. (2018) definition - includes cos^2(yaw) already
@@ -296,6 +290,9 @@ class CurledWakeWindfield(Windfield):
             D=D,
             sigma_vortex=self.sigma_vortex,
             N_vortex=self.N_vortex,
+            eff_yaw=eff_yaw,
+            yaw=rotor.yaw,
+            tilt=rotor.tilt,
         )
         if self.bottom_wall_z > -np.inf:
             # symmetry vortices (negative in sign, centered around zt_ghost)
@@ -307,10 +304,13 @@ class CurledWakeWindfield(Windfield):
                 self.z,
                 yt=yt,
                 zt=zt_ghost,
-                Gamma_0=Gamma_0,  # mirror the circulation also
+                Gamma_0=Gamma_0,
                 D=D,
                 sigma_vortex=self.sigma_vortex,
                 N_vortex=self.N_vortex,
+                eff_yaw=eff_yaw,
+                yaw=rotor.yaw,
+                tilt=-rotor.tilt,  # mirror the circulation for tilt
             )
             v += vghost
             w += wghost
@@ -1127,7 +1127,19 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
 # ██       ██████  ██   ████  ██████    ██    ██  ██████  ██   ████ ███████
 
 
-def compute_vortex_field(y, z, yt, zt, Gamma_0, D=1, sigma_vortex=0.1, N_vortex=10):
+def compute_vortex_field(
+    y,
+    z,
+    yt,
+    zt,
+    Gamma_0,
+    D=1,
+    sigma_vortex=0.1,
+    N_vortex=100,
+    eff_yaw=0.0,
+    yaw=0.0,
+    tilt=0.0,
+):    
     """
     Computes the CVP field from an elliptical distribution of Lamb-Oseen vortices
     spaced evenly along the vertical axis of the rotor disk.
@@ -1140,22 +1152,33 @@ def compute_vortex_field(y, z, yt, zt, Gamma_0, D=1, sigma_vortex=0.1, N_vortex=
     - Gamma_0: Normalized circulation strength
     - D: Rotor diameter (default: 1)
     - sigma_vortex: Standard deviation of the vortex distribution (default: 0.1)
-    - N_vortex: Number of vortices to distribute along the rotor disk (default: 10)
+    - N_vortex: Number of vortices to distribute along the rotor disk (default: 100)
+    - eff_yaw: effective yaw angle of the turbine, in radians (default: 0.0)
+    - yaw: yaw angle of the turbine, in radians (default: 0.0
+    - tilt: tilt angle of the turbine, in radians (default: 0.0)
 
     Returns:
     - v, w: 2D arrays of the velocity field components in the y and z directions
     """
+    dy = y[1] - y[0]
     dz = z[1] - z[0]
     # r-axis: clip edges to prevent singularities
-    r_i = np.linspace(-(D - dz) / 2, (D - dz) / 2, N_vortex)
-    Gamma_i = Gamma_0 * 4 * r_i / (N_vortex * D**2 * np.sqrt(1 - (2 * r_i / D) ** 2))
+    d_yx = np.maximum(dy, dz)
+    # along z-axis in yaw-only frame (also the radial distance of each point from center in any frame)
+    r_i = np.linspace(-(D - d_yx) / 2, (D - d_yx) / 2, N_vortex)
+    # rotate points into yaw-and-tilt frame
+    _, y_i, z_i = eff_yaw_inv_rotation(np.zeros_like(r_i), np.zeros_like(r_i), r_i, eff_yaw, yaw, tilt)
+
+    Gamma_i = (
+        Gamma_0 * 4 * r_i / (N_vortex * D * np.sqrt(1 - (2 * r_i / D) ** 2))
+    )
     sigma = sigma_vortex * D
 
     # now we build the main summation, which is 3D (y, z, i)
     yG, zG = np.meshgrid(y, z, indexing="ij")
     yG = yG[..., None]  # expand extra dimension
     zG = zG[..., None]  # expand extra dimension
-    rsq = (yG - yt) ** 2 + (zG - zt - r_i[None, None, :]) ** 2  # 3D grid variable
+    rsq = (yG - yt - y_i[None, None, :]) ** 2 + (zG - zt - z_i[None, None, :]) ** 2  # 3D grid variable
     rsq = np.clip(rsq, 1e-8, None)  # avoid singularities
 
     # put pieces together:
@@ -1163,8 +1186,8 @@ def compute_vortex_field(y, z, yt, zt, Gamma_0, D=1, sigma_vortex=0.1, N_vortex=
     summation = exponent / (2 * np.pi * rsq) * Gamma_i[None, None, :]
 
     # sum all vortices along last dim
-    v = np.sum(summation * (zG - zt - r_i[None, None, :]), axis=-1)
-    w = np.sum(summation * -(yG - yt), axis=-1)
+    v = np.sum(summation * (zG - zt - z_i[None, None, :]), axis=-1)
+    w = np.sum(summation * -(yG - yt - y_i[None, None, :]), axis=-1)
 
     return v, w
 
@@ -1183,31 +1206,33 @@ def check_state_bounds(state, thresh=1e-4):
     return expand_y, expand_z
 
 
-def ic_stencil(y, z, yt, zt, smooth_fact=0.1, ay=0.5, az=None) -> np.ndarray:
+def ic_stencil(y, z, yt, zt, smooth_fact=0.1, r4=0.5, eff_yaw=0.0, yaw=0.0, tilt=0.0) -> np.ndarray:
     """
     Stencil using distance transform for smooth circular mask.
 
-    Parameters:
+    Parameters
     - y: 1D array of y-coordinates, non-dim to D
     - z: 1D array of z-coordinates, non-dim to D
     - yt: y-coordinate of the turbine center, non-dim to D
     - zt: z-coordinate of the turbine center, non-dim to D
     - smooth_fact: smoothing factor for the mask, non-dim to D (default: 0.1)
-    - ay: y-axis of the elliptical mask, non-dim to D (default: 0.5)
-    - az (optional): z-axis of the elliptical mask, non-dim to D 
-        By default, az is None, which defaults to ay. 
+    - r4: radius of the turbine rotor, non-dim to D (default: 0.5)
+    - eff_yaw: effective yaw angle of the turbine, in radians (default: 0.0)
+    - yaw: yaw angle of the turbine, in radians (default: 0.0)
+    - tilt: tilt angle of the turbine, in radians (default: 0.0)
     """
-    az = ay if az is None else az
-
     yG, zG = np.meshgrid(y, z, indexing="ij")
     dy = y[1] - y[0]
     dz = z[1] - z[0]
 
+    # determine if points are in the turbine when rotated into the "yaw-only" frame
+    ay, az = r4 * np.cos(eff_yaw), r4
+    _, yvals, z_vals = eff_yaw_rotation(np.ones_like(yG), yG - yt, zG - zt, eff_yaw, yaw, tilt)
     # Calculate normalized distance from center
-    dist = np.sqrt(((yG - yt) / ay) ** 2 + ((zG - zt) / az) ** 2)
+    dist = ((yvals / ay) ** 2 + (z_vals / az) ** 2)
 
-    # Create smooth mask using tanh transition
-    mask = 0.5 * (1 - np.tanh((dist - 1) / (1e-8 + smooth_fact * 0.1)))
+    # Create smooth mask using tanh transition,  denominator scales transition smoothly
+    mask = 0.5 * (1 - np.tanh((dist - 1) / (2 * np.sqrt(dy * dz))))
 
     # Apply Gaussian smoothing if needed
     sigma_y = smooth_fact / dy  # grid units in y-direction
