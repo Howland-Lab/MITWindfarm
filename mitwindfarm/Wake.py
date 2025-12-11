@@ -77,12 +77,14 @@ class GaussianWake(Wake):
         xmax: float = 100.0,
         dx: float = 0.05,
         WATI_sigma_multiplier: float = 1.0,
+        x0: float = 1.0,
     ):
         self.x, self.y, self.z = x, y, z
         self.rotor_sol = rotor_sol
         self.sigma, self.kw = sigma, kw
         self.WATI_sigma_multiplier = WATI_sigma_multiplier
         self.TIamb = TIamb or 0.0
+        self.x0 = x0
 
         # precompute centerline far downstream
         self.x_centerline, self.yz_centerline = self._centerline(xmax, dx)
@@ -143,7 +145,7 @@ class GaussianWake(Wake):
 
         Note that this is non-dimensionalized by D and x is actually x/D.
         """
-        return 1 + self.kw * np.log(1 + np.exp(2 * (x - 1)))
+        return 1 + self.kw * np.log(1 + np.exp(2 * (x - self.x0)))
 
     def _du(self, x: ArrayLike, wake_diameter: Optional[float] = None) -> ArrayLike:
         """
@@ -220,12 +222,13 @@ class GaussianWake(Wake):
 
 class GaussianWakeModel(WakeModel):
     def __init__(
-        self, sigma=0.25, kw=0.07, WATI_sigma_multiplier=1.0, xmax: float = 100.0
+        self, sigma=0.25, kw=0.07, WATI_sigma_multiplier=1.0, xmax: float = 100.0, x0: float = 1.0
     ):
         self.sigma = sigma
         self.kw = kw
         self.xmax = xmax
         self.WATI_sigma_multiplier = WATI_sigma_multiplier
+        self.x0 = x0
 
     def __call__(
         self, x, y, z, rotor_sol: "RotorSolution", TIamb: float = None
@@ -240,6 +243,7 @@ class GaussianWakeModel(WakeModel):
             TIamb=TIamb,
             xmax=self.xmax,
             WATI_sigma_multiplier=self.WATI_sigma_multiplier,
+            x0=self.x0,  # use rotor solution x0? 
         )
 
 
