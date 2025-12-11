@@ -338,15 +338,18 @@ class ArbitraryZWindfield(Windfield):
         self.TIamb = TIamb  # optional, constant TI value
 
     def wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        x, y, z = np.broadcast_arrays(x, y, z)
         return np.interp(z, self.z, self.U_z)
 
     def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        x, y, z = np.broadcast_arrays(x, y, z)
         if self.TIamb_z is not None:
             return np.interp(z, self.z, self.TIamb_z)
         else:
             return self.TIamb * np.ones_like(z)
 
     def wdir(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        x, y, z = np.broadcast_arrays(x, y, z)
         if self.wdir_z is not None:
             return np.interp(z, self.z, self.wdir_z)
         else:
