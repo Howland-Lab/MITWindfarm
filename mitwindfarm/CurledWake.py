@@ -136,6 +136,8 @@ class CurledWakeWindfield(Windfield):
         self.auto_expand = auto_expand
 
         # ============ field evolution modules ============
+        self.shared_flow_data = dict()  # initalize this before loading modules
+        
         u_kwargs = dict() if u_kwargs is None else u_kwargs
         v_kwargs = dict() if v_kwargs is None else v_kwargs
         w_kwargs = dict() if w_kwargs is None else w_kwargs
@@ -354,7 +356,7 @@ class CurledWakeWindfield(Windfield):
 
         if z is not None:
             z = np.atleast_1d(z)
-            zmin = np.max(
+            zmin = np.max(  # do not expand below z_wall - dz (extra point needed for BCs)
                 [np.min(z) - self.zbuff * add_buffers, self.bottom_wall_z - self.dz]
             )
             zmax = np.max(z) + self.zbuff * add_buffers
@@ -364,7 +366,7 @@ class CurledWakeWindfield(Windfield):
             self.grid[2] = np.concatenate([zpad_lower, self.z, zpad_upper])
             zpad = (len(zpad_lower), len(zpad_upper))
 
-        # # now we need to pad the du, dv, dw fields
+        # now we need to pad the du, dv, dw fields
         self.du = np.pad(self.du, ((0, 0), ypad, zpad), mode="constant")
         self.dv = np.pad(self.dv, ((0, 0), ypad, zpad), mode="constant")
         self.dw = np.pad(self.dw, ((0, 0), ypad, zpad), mode="constant")
@@ -380,7 +382,7 @@ class CurledWakeWindfield(Windfield):
             self.grid = [
                 np.atleast_1d(x),
                 np.arange(-self.ybuff + y, self.ybuff + self.dy + y, self.dy),
-                np.arange(  # impose wall condition?
+                np.arange(  # impose wall condition
                     np.max([self.bottom_wall_z - self.dz, -self.zbuff + z]),
                     self.zbuff + z + self.dz,
                     self.dz,
@@ -453,6 +455,10 @@ class CurledWakeWindfield(Windfield):
         except IntegrationException as e:
             x = e.partial_t
             ret = e.partial_u
+            if len(x) > 1:
+                # append and concatenate progress
+                self._finalize_outputs(xnew=x[1:], ret=ret[1:])
+                self.grid[0] = np.concatenate([self.x, x[1:]])
             raise e
             print(f"Exiting integration at x={max(x)}:\n\t", e)
         except DomainExpansionRequest as e:
@@ -506,13 +512,14 @@ class CurledWakeWindfield(Windfield):
         if self.bottom_wall_z > -np.inf and self.bottom_wall_z > np.min(self.z):
             # update boundary conditions with symmetry and anti-symmetry conditions
             zid = np.argmin(np.abs(self.z - self.bottom_wall_z))  # zid at the wall
-            ghost_id = zid - 1  # ghost point below the wall
-            mirror_id = zid + 1  # mirror point above the wall
+            ghost_id = zid - 1  # ghost point below the wall; should always be = 0
+            mirror_id = zid + 1  # mirror point above the wall; should always be = 2
 
             # impose wall conditions on the fields
             flow = self.shared_flow_data
             for key in self.fields_to_integrate:
                 flow[key][..., ghost_id] = flow[key][..., mirror_id]
+                # flow[key][..., -1] = 0  # TODO: (fix) also impose zero at the top boundary for stability
 
     def _return_derivatives(self, x) -> ArrayLike:
         """Returns a flattened array of the outputs from _step"""
@@ -580,6 +587,29 @@ class CurledWakeWindfield(Windfield):
     @property
     def z(self) -> ArrayLike:
         return self.grid[2]
+
+    @property
+    def u(self):
+        grid = np.meshgrid(*self.grid, indexing="ij")
+        ub = self.base_windfield.wsp(*grid) * np.cos(self.base_windfield.wdir(*grid))
+        return ub + self.modules["du"].field
+
+    @property
+    def v(self):
+        grid = np.meshgrid(*self.grid, indexing="ij")
+        ub = self.base_windfield.wsp(*grid) * np.sin(self.base_windfield.wdir(*grid))
+        return ub + self.modules["dv"].field
+
+    @property
+    def w(self):
+        # TODO: w^B field is assumed to be zero
+        return self.modules["dw"].field  # solved dw-field
+
+    @property
+    def k(self):
+        grid = np.meshgrid(*self.grid, indexing="ij")
+        kb = (self.base_windfield.wsp(*grid) * self.base_windfield.TI(*grid))**2 * 3 / 2
+        return kb + self.modules["dk"].field
 
     @property
     def du(self):
@@ -947,7 +977,7 @@ class CurledTurbulenceModel_const(CurledTurbulenceModel):
 
     name = "const"
 
-    def __init__(self, curledwake, nu_T=1e-3, **kwargs):
+    def __init__(self, curledwake, nu_T=1e-3):
         """
         Initializes a constant eddy viscosity model with fixed model parameters.
         """
@@ -1018,7 +1048,13 @@ class CurledTurbulenceModel_2021(CurledTurbulenceModel):
             dUdz = 0  # no gradient if U is scalar-valued
         else: 
             dUdz = np.gradient(U, self.curledwake.dz, axis=-1)
-        lmix = self.kappa * zg / (1 + self.kappa * zg / self.lam)
+
+        # need to use "distance frrom ground" for mixing length
+        if self.curledwake.bottom_wall_z > -np.inf:
+            z_abs = zg - self.curledwake.bottom_wall_z
+        else:
+            z_abs = zg
+        lmix = self.kappa * z_abs / (1 + self.kappa * z_abs / self.lam)
         lmix = np.clip(lmix, 1e-2, None)  # mixing length must be non-negative
 
         return self.C * lmix**2 * np.abs(dUdz)
