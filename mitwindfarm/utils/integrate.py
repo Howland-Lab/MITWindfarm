@@ -123,7 +123,7 @@ def solve_ivp(dudt, T, u0, dt=0.1, f=rk4_step, end_exact=True, **kwargs):
         except IntegrationException as e:
             # re-raise with additional state information
             raise IntegrationException(
-                "Integration failed at time step.",
+                "Integration failed at time step.\n\t" + e.message,
                 partial_t=np.array(t),  # save integration up to this point
                 partial_u=np.array(ut),
             ) from e

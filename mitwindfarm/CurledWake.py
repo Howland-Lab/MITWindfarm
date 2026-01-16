@@ -73,6 +73,7 @@ class CurledWakeWindfield(Windfield):
         k_kwargs: dict = None,
         ic_method: Literal["du", "fx"] = "du",
         bottom_wall_z: Union[float, bool] = None,
+        zero_at_boundaries: bool = True,
         clip_u: float = 0.1,
         use_r4: bool = False,
         auto_expand: bool = True,
@@ -107,6 +108,9 @@ class CurledWakeWindfield(Windfield):
         - w_kwargs: Additional arguments for the w-velocity model (default: None).
         - k_kwargs: Additional arguments for the turbulence model (default: None).
         - bottom_wall_z: If True, imposes a wall condition at the given value (default: False).
+        - zero_at_boundaries: Whether to impose zero for marched fields
+            at the y and z boundaries (default: True).
+            If True, `auto_expand` is recommended to be True as well.
         - clip_u: Whether to clip the u-velocity to prevent negative values (default: 0.1).
             Set to <= 0 to disable clipping
         - use_r4: Whether to use the r4 or rotor radius for initial conditions (default: True).
@@ -125,8 +129,8 @@ class CurledWakeWindfield(Windfield):
         if "scipy" not in self.ivp_name:
             self.ivp_kwargs.setdefault("dt", self.dx)
 
-        self.ybuff = ybuff
-        self.zbuff = zbuff
+        self.ybuff = np.max([ybuff, 1])
+        self.zbuff = np.max([zbuff, 1])
 
         self.extra_fx = None
         self.ic_method = ic_method  # "fx" DOES NOT WORK - ONLY USE "du"
@@ -134,7 +138,13 @@ class CurledWakeWindfield(Windfield):
         self.clip_u = clip_u
         self.use_r4 = use_r4
         self.auto_expand = auto_expand
-
+        self.zero_at_boundaries = zero_at_boundaries
+        if zero_at_boundaries and not auto_expand:
+            warn(
+                "zero_at_boundaries=True is recommended to be used with auto_expand=True",
+                UserWarning,
+            )
+        
         # ============ field evolution modules ============
         self.shared_flow_data = dict()  # initalize this before loading modules
         
@@ -227,7 +237,7 @@ class CurledWakeWindfield(Windfield):
 
     def stamp_ic(
         self,
-        rotor_solution: RotorSolution,
+        rotor: RotorSolution,
         xt,
         yt,
         zt,
@@ -238,43 +248,59 @@ class CurledWakeWindfield(Windfield):
         Stamp the initial condition of the rotor solution into the wind field.
 
         Parameters:
-        - rotor_solution: The rotor solution to stamp into the wind field.
+        - rotor: The rotor solution to stamp into the wind field.
         - smooth_fact: Smoothing factor for the initial condition stencil.
         - D: Diameter of the rotor (default: 1).
         """
+        if (zt - D / 2) < self.bottom_wall_z:
+            raise ValueError(
+                f"Turbine at zt={zt} with D={D} intersects bottom wall at z={self.bottom_wall_z}"
+            )
+
         # first, add the turbine to the list of turbines
-        self.turbines.append(TurbineProperties(xt, yt, zt, D, rotor_solution))
+        self.turbines.append(TurbineProperties(xt, yt, zt, D, rotor))
 
         # adjust grid bounds if necessary
         self.adjust_grid_bounds(x=None, y=yt, z=zt, add_buffers=True)
 
         # streamwise velocity initial condition:
         smooth_fact = self.smooth_fact if smooth_fact is None else smooth_fact
-        rotor = rotor_solution
-        r4 = (
-            np.sqrt((1 - rotor.extra.an) / rotor.extra.u4) * D / 2
-            if self.use_r4
-            else D / 2
-        )
-        # calculate yaw angle in "yaw-only" frame
         eff_yaw = calc_eff_yaw(rotor.yaw, rotor.tilt)
-        # create stencil
-        shape = ic_stencil(
-            self.y,
-            self.z,
-            yt,
-            zt,
-            smooth_fact=smooth_fact,
-            r4 = r4,
-            eff_yaw = eff_yaw,
-            yaw = rotor.yaw,
-            tilt = rotor.tilt,
-        )
+        # rotor = rotor_solution
+        if isinstance(self.use_r4, bool):
+            r4 = (
+                np.sqrt((1 - rotor.extra.an) / rotor.extra.u4) * D / 2
+                if self.use_r4
+                else D / 2
+            )
+            # calculate yaw angle in "yaw-only" frame
+            # create stencil
+            shape = ic_stencil(
+                self.y,
+                self.z,
+                yt,
+                zt,
+                smooth_fact=smooth_fact,
+                r4 = r4,
+                eff_yaw = eff_yaw,
+                yaw = rotor.yaw,
+                tilt = rotor.tilt,
+            )
 
-        # stamp the rotor solution into the wind field
-        # TODO: check du is negative?
-        delta_u = rotor.u4 - rotor.REWS  # delta_u, adjusted by REWS
-        self.du[-1, ...] += shape * delta_u
+            # stamp the rotor solution into the wind field
+            delta_u = rotor.u4 - rotor.REWS  # delta_u, adjusted by REWS
+            self.du[-1, ...] += shape * delta_u
+        else:
+            # RECOMMENDED: enforce momentum conservation with this method
+            delta_u = ic_stencil_corrected(
+                self.y,
+                self.z,
+                yt,
+                zt,
+                rotor,
+                smooth_fact=smooth_fact,
+            )
+            self.du[-1, ...] += delta_u
 
         # dv, dw initial conditions:
         if eff_yaw == 0:
@@ -296,11 +322,10 @@ class CurledWakeWindfield(Windfield):
             yaw=rotor.yaw,
             tilt=rotor.tilt,
         )
+        # symmetry vortices (negative in sign, centered around zt_ghost)
         if self.bottom_wall_z > -np.inf:
-            # symmetry vortices (negative in sign, centered around zt_ghost)
-            zt_ghost = (
-                -zt - self.bottom_wall_z * 2
-            )  # zt_ghost < 0; if bottom_wall_z = 0, then this is -zt
+            # zt_ghost < 0; if bottom_wall_z = 0, then this is -zt
+            zt_ghost = -zt - self.bottom_wall_z * 2
             vghost, wghost = compute_vortex_field(
                 self.y,
                 self.z,
@@ -356,9 +381,8 @@ class CurledWakeWindfield(Windfield):
 
         if z is not None:
             z = np.atleast_1d(z)
-            zmin = np.max(  # do not expand below z_wall - dz (extra point needed for BCs)
-                [np.min(z) - self.zbuff * add_buffers, self.bottom_wall_z - self.dz]
-            )
+            # do not expand below z_wall - dz (extra point needed for BCs)
+            zmin = np.max([np.min(z) - self.zbuff * add_buffers, self.bottom_wall_z])
             zmax = np.max(z) + self.zbuff * add_buffers
             zpad_lower = np.arange(self.z[0] - self.dz, zmin - self.dz, -self.dz)[::-1]
             zpad_upper = np.arange(self.z[-1] + self.dz, zmax + self.dz, self.dz)
@@ -422,7 +446,7 @@ class CurledWakeWindfield(Windfield):
             # ========= assemble variables and fields =========
             if np.any(np.isnan(_state)):
                 raise IntegrationException(f"nan value encountered at x={x:.3f}")
-            vars = self._unpack_inputs(x, _state)  # computes all of the deficit fields
+            vars = self._unpack_inputs(x, _state)  # extracts integrated deficit fields
             if self.auto_expand:
                 self._check_yz_bounds(x, vars)  # may raise DomainExpansionRequest
 
@@ -509,17 +533,24 @@ class CurledWakeWindfield(Windfield):
         Impose wall boundary conditions on fields:
         du/dz = 0; dv/dz = 0; dk/dz = 0; w=0 at the wall.
         """
-        if self.bottom_wall_z > -np.inf and self.bottom_wall_z > np.min(self.z):
-            # update boundary conditions with symmetry and anti-symmetry conditions
-            zid = np.argmin(np.abs(self.z - self.bottom_wall_z))  # zid at the wall
-            ghost_id = zid - 1  # ghost point below the wall; should always be = 0
-            mirror_id = zid + 1  # mirror point above the wall; should always be = 2
-
-            # impose wall conditions on the fields
-            flow = self.shared_flow_data
-            for key in self.fields_to_integrate:
+        flow = self.shared_flow_data
+        for key in self.fields_to_integrate:
+            if self.bottom_wall_z > -np.inf and self.bottom_wall_z > np.min(self.z):
+                # update boundary conditions with symmetry condition
+                zid = np.argmin(np.abs(self.z - self.bottom_wall_z))  # zid at the wall
+                ghost_id = zid - 1  # ghost point below the wall; should always be = 0
+                mirror_id = zid + 1  # mirror point above the wall; should always be = 2
                 flow[key][..., ghost_id] = flow[key][..., mirror_id]
-                # flow[key][..., -1] = 0  # TODO: (fix) also impose zero at the top boundary for stability
+
+            elif self.zero_at_boundaries:
+                # if no wall, impose zero at the bottom boundary
+                flow[key][..., 0] = 0
+            
+            if self.zero_at_boundaries:
+                # also impose zero at the top and both y-boundaries
+                flow[key][..., -1] = 0
+                flow[key][0, ...] = 0
+                flow[key][-1, ...] = 0 
 
     def _return_derivatives(self, x) -> ArrayLike:
         """Returns a flattened array of the outputs from _step"""
@@ -557,7 +588,13 @@ class CurledWakeWindfield(Windfield):
         check_yz = []
         for name, m in self.modules.items():
             if m.march_field and m.check_yz:
-                check_yz.append(check_state_bounds(vars[name], thresh=m.bound_thresh))
+                check_yz.append(
+                    check_state_bounds(
+                        vars[name],
+                        thresh=m.bound_thresh,
+                        exclude_wall_points=self.zero_at_boundaries,
+                    )
+                )
 
         ybnd, zbnd = np.max(check_yz, axis=0)
         if zbnd[0] and np.min(self.z) < self.bottom_wall_z:
@@ -566,7 +603,7 @@ class CurledWakeWindfield(Windfield):
         if np.any([ybnd, zbnd]):
             # if any of the checks fail, we need to expand the domain along those dimensions
             raise DomainExpansionRequest(
-                f"Expanding domain at {x=:.2f}", expand_y=ybnd, expand_z=zbnd
+                f"Expanding domain at x={x:.2f}", expand_y=ybnd, expand_z=zbnd
             )
 
     @property
@@ -707,6 +744,9 @@ class Field(ABC):
     def x(self):
         return self.curledwake.grid[0]
 
+    def __repr__(self):
+        return f"CurledWakeField: {self.__class__.__name__}"
+
 
 class CurledUModel(Field):
     """
@@ -752,7 +792,7 @@ class DefaultUModel(CurledUModel):
 
     name = "default"
 
-    def __init__(self, curledwake: CurledWakeWindfield, thresh=1e-4):
+    def __init__(self, curledwake: CurledWakeWindfield, thresh=1e-3):
         super().__init__(curledwake=curledwake)
         self.march_field = True
         self.check_yz = True
@@ -1069,7 +1109,7 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
 
     name = "k-l"
 
-    def __init__(self, curledwake, C_nu=0.04, C_k1=1, C_k2=1, thresh=1e-6):
+    def __init__(self, curledwake, C_nu=0.04, C_k1=1, C_k2=1, thresh=1e-4):
         """
         Initializes a k-l turbulence model with fixed model parameters.
 
@@ -1096,6 +1136,21 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
         lmix = interpolate_lmix(
             self.curledwake.shared_flow_data["du"], self.curledwake.grid[1]
         )[:, None]
+        return lmix
+
+    def postprocess_lmix(self):
+        """Compute lmix from the stored du, dk 3D windfields"""
+        # right now, lmix is just one value per x-location
+        lmix = np.zeros_like(self.curledwake.x)
+        du = self.curledwake.du
+        for i, x in enumerate(self.curledwake.x):
+            try: 
+                self.curledwake.shared_flow_data = dict(du=du[i, ...])
+                _lmix = self._lmix(x)
+            except IntegrationException as e:
+                _lmix = np.nan  # or some other placeholder
+            lmix[i] = np.mean(_lmix)
+
         return lmix
 
     def nu_T(self, x):
@@ -1224,13 +1279,14 @@ def compute_vortex_field(
     return v, w
 
 
-def check_state_bounds(state, thresh=1e-4):
+def check_state_bounds(state, thresh=1e-4, exclude_wall_points=False):
     """
     Check values of 2D array `state` at the boundaries to see
     if a domain expansion is needed.
     """
-    max_y = np.max(abs(state[[0, -1], :]), axis=1)
-    max_z = np.max(abs(state[:, [0, -1]]), axis=0)
+    ids = [1, -2] if exclude_wall_points else [0, -1]
+    max_y = np.max(abs(state[ids, :]), axis=1)
+    max_z = np.max(abs(state[:, ids]), axis=0)
 
     expand_y = max_y > thresh
     expand_z = max_z > thresh
@@ -1273,7 +1329,37 @@ def ic_stencil(y, z, yt, zt, smooth_fact=0.1, r4=0.5, eff_yaw=0.0, yaw=0.0, tilt
     return mask
 
 
-def get_wake_bounds_y(du, thresh=0.05, relative=True):
+def ic_stencil_corrected(
+        y, z, yt, zt, rotor, smooth_fact=0.1, max_iter=10, tol=1e-3
+):
+    """
+    Iterate to compute the corrected wake width r4 which conserves mass
+    and momentum (momentum deficit integral) for arbitrary rotor and smooth_fact.
+
+    Typically converges in 3-4 iterations.
+    """
+    guess = 0.5  #  * np.sqrt((1 - rotor.an) / rotor.u4)  # inital guess
+    eff_yaw = calc_eff_yaw(rotor.yaw, rotor.tilt)
+    for _ in range(max_iter):
+        ic = ic_stencil(
+            y, z, yt, zt, smooth_fact, guess, eff_yaw=eff_yaw, yaw=rotor.yaw, tilt=rotor.tilt
+        ) * (rotor.u4 - rotor.REWS)
+        integrand = (rotor.REWS + ic) * ic
+        int_mom_def = np.trapz(np.trapz(integrand, z), y)
+        err = np.abs(int_mom_def + rotor.Ct * np.pi / 8) / np.abs(int_mom_def)
+        if err < tol:
+            break
+        if _ == max_iter - 1:
+            raise ValueError(
+                f"ic_stencil_corrected did not converge in {max_iter} iterations, final error {err:.4e}"
+            )
+
+        r4_new = guess * np.sqrt((-rotor.Ct * np.pi / 8) / int_mom_def)
+        guess = r4_new
+    return ic
+
+
+def get_wake_bounds_y(du_y, thresh=0.05, relative=True):
     """
     Parse wake bounds from the 2D du field, returns indices for
     all crossings of threshold `thresh` from the wake profile in y.
@@ -1286,8 +1372,6 @@ def get_wake_bounds_y(du, thresh=0.05, relative=True):
     Returns:
     - ycross: array of y-crossings, arranged as [2 x N] array of (lower, upper) index pairs
     """
-
-    du_y = np.max(abs(du), axis=1)
 
     _thresh = thresh * np.max(du_y) if relative else thresh
 
@@ -1323,7 +1407,7 @@ def get_wake_bounds_z(du, thresh=0.05, relative=True):
     return zcross
 
 
-def interpolate_lmix(du, y, k=0, fill_value=1.0, max_value=None, pad=True):
+def interpolate_lmix(du, y, k=0, fill_value=1.0, max_value=None, pad=True, relative=True, zid=-1):
     """
     Interpolates the mixing length scale from the du field.
 
@@ -1334,6 +1418,8 @@ def interpolate_lmix(du, y, k=0, fill_value=1.0, max_value=None, pad=True):
     - fill_value: value to fill if no bounds are found (default: 1.0)
     - max_value: maximum value for the mixing length scale (default: None, no limit)
     - pad: whether to pad the du field with zeros (default: True)
+    - relative: use 5% of max(du) rather than 5% of U_inf for bounds (default: True)
+    - zid: z-index to use for du if du is 3D (default: -1, use "MAX")
 
     Returns:
     - lmix: 1D array of mixing length scale
@@ -1341,13 +1427,18 @@ def interpolate_lmix(du, y, k=0, fill_value=1.0, max_value=None, pad=True):
     if np.any(np.isnan(du)):
         raise ValueError("du contains NaN values")
 
+    if zid >= 0: 
+        du_y = abs(du[:, zid])
+    else: 
+        du_y = np.max(abs(du), axis=1)
+
     if pad:
         # zero-pad wake_bnds to ensure it goes to zero on both sides
-        wake_bnds = get_wake_bounds_y(np.pad(du, (1, 1), mode="constant"))
+        wake_bnds = get_wake_bounds_y(np.pad(du_y, (1, 1), mode="constant"), relative=relative)
         y_pad = np.pad(y, (1, 1), mode="edge")
         y_bounds = y_pad[wake_bnds]
     else:
-        wake_bnds = get_wake_bounds_y(du)
+        wake_bnds = get_wake_bounds_y(du_y, relative=relative)
         y_bounds = y[wake_bnds]
 
     if y_bounds.size == 0:
