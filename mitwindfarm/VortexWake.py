@@ -1,5 +1,5 @@
 """
-Vortex wake model from Bastankhah et al. (2022) and extended to
+Vortex wake model from Bastankhah et al. JFM (2022) and extended to
 wind veer effects by Narasimhan, Gayme, and Meneveau JRSE (2025).
 
 Note that the Coupled Ekman-surface layer ABL model is not included
@@ -21,9 +21,27 @@ if TYPE_CHECKING:
 
 class VortexWakeModel(WakeModel):
     """
-    Defines a vortex wake model based on the work of Narasimhan, Gayme, and Meneveau (2025).
-    """
+    Defines a vortex wake model based on the work of Narasimhan, Gayme, and Meneveau (2025)
+    which extends the work of Bastankhah et al. JFM (2022) to include wind veer effects.
 
+    __init__: 
+        - Args
+            - kw: float, linear wake expansion coefficient (default: 0.04)
+            - R: float, rotor radius (default: 0.5)
+            - alpha: float, shape parameter for wake deformation (default: 1.263)
+            - ustar: float, friction velocity for ground effect modeling (default: None)
+            - windfield: windfield for veer deformation (default: None)
+            - z_wall: bool, whether to include ground effect modeling (default: None - no wall)
+    __call__: function to create a VortexWake instance called by the wake model solver
+        - Args
+            - x: float, x-coordinate of the turbine
+            - y: float, y-coordinate of the turbine
+            - z: float, z-coordinate of the turbine
+            - rotor_sol: RotorSolution, solution object containing rotor parameters
+            - TIamb: float, ambient turbulence intensity (default: None)
+        - Returns:
+            - VortexWake instance with the specified parameters.
+    """
     def __init__(
         self,
         kw: float = 0.04,
@@ -31,18 +49,42 @@ class VortexWakeModel(WakeModel):
         alpha: float = 1.263,
         ustar: Optional[float] = None,
         windfield: Optional["Windfield"] = None,
-        include_reflection: bool = True,
+        z_wall: bool = None,
     ):
+        """
+        Defines a vortex wake model based on the work of Narasimhan, Gayme, and Meneveau (2025)
+        which extends the work of Bastankhah et al. JFM (2022) to include wind veer effects.
+
+        - Args
+            - kw: float, linear wake expansion coefficient (default: 0.04)
+            - R: float, rotor radius (default: 0.5)
+            - alpha: float, shape parameter for wake deformation (default: 1.263)
+            - ustar: float, friction velocity for ground effect modeling (default: None)
+            - windfield: windfield for veer deformation (default: None)
+            - z_wall: bool, whether to include ground effect modeling (default: None - no wall)
+        """
         self.kw = kw
         self.R = R
         self.alpha = alpha
         self.ustar = ustar
         self.windfield = windfield
-        self.include_reflection = include_reflection
+        self.z_wall = z_wall
 
     def __call__(
         self, x, y, z, rotor_sol: "RotorSolution", TIamb: float = None
     ) -> "VortexWake":
+        """
+        Function to create a VortexWake instance called by the wake model solver
+
+        - Args
+            - x: float, x-coordinate of the turbine
+            - y: float, y-coordinate of the turbine
+            - z: float, z-coordinate of the turbine
+            - rotor_sol: RotorSolution, solution object containing rotor parameters
+            - TIamb: float, ambient turbulence intensity (default: None)
+        - Returns:
+            - VortexWake instance with the specified parameters.
+        """
         return VortexWake(
             x,
             y,
@@ -53,7 +95,7 @@ class VortexWakeModel(WakeModel):
             R=self.R,
             ustar=self.ustar,
             windfield=self.windfield,
-            include_reflection=self.include_reflection,
+            z_wall=self.z_wall,
         )
 
 
@@ -73,7 +115,7 @@ class VortexWake(Wake):
         R: float = 0.5,
         ustar: Optional[float] = None,
         windfield: Optional["Windfield"] = None,
-        include_reflection: bool = True,
+        z_wall: bool = True,
         TIamb: float = None,
     ):
         self.x, self.y, self.z = x, y, z
@@ -85,7 +127,7 @@ class VortexWake(Wake):
         self.R = R
         self.ustar = ustar
         self.windfield = windfield
-        self.include_reflection = include_reflection
+        self.z_wall = z_wall
         self.TIamb = TIamb
 
     def A_star(self):
@@ -279,12 +321,15 @@ class VortexWake(Wake):
             )
             * np.sign(t_hat)
         )
-        if self.include_reflection:
+        if self.z_wall is not None:
+            # note: denominator has z + (self.z - self.z_wall) * 2 because `z` is in
+            # local (turbine) coordinates, so self.z is added once to transform to global
+            # coordinates, and then again to account for the zhub offset (distance from ground)
             yc_hat -= (
                 2
                 * t_hat
                 / np.pi
-                / (((z + self.z * 2) / (self.R * np.sqrt(self.Astar))) ** 2 - 1)
+                / (((z + (self.z - self.z_wall) * 2) / (self.R * np.sqrt(self.Astar))) ** 2 - 1)
             )
 
         return yc_hat
