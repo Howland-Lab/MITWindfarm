@@ -4,7 +4,7 @@ from typing import Optional
 import numpy as np
 
 from ._Layout import Layout
-from .Rotor import Rotor, AD, RotorSolution
+from .Rotor import Rotor, AD, UnifiedAD_TI, RotorSolution
 from .Windfield import Windfield, Uniform
 from .Wake import WakeModel, Wake, GaussianWakeModel
 from .CurledWake import CurledWakeWindfield
@@ -168,7 +168,7 @@ class CurledWindfarm(Windfarm):
         Note that TIamb is unused. Instead, ensure that the `base_windfield` 
         includes ambient turbulence. 
         """
-        self.rotor_model = AD() if rotor_model is None else rotor_model
+        self.rotor_model = UnifiedAD_TI() if rotor_model is None else rotor_model
         self.base_windfield = (
             Uniform(TIamb=TIamb) if base_windfield is None else base_windfield
         )
