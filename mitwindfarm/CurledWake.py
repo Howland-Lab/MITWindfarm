@@ -59,7 +59,7 @@ class CurledWakeWindfield(Windfield):
         dz: float = 0.1,
         ybuff: float = 3,
         zbuff: float = 2,
-        N_vortex: int = 10,
+        N_vortex: int = 128,
         sigma_vortex: float = 0.2,
         smooth_fact: float = None,
         use_constant_x0: float = None,
@@ -117,6 +117,7 @@ class CurledWakeWindfield(Windfield):
         - auto_expand: Whether to automatically expand the domain when needed (default: True).
         - verbose: Prints debug information if True (default: False).
         """
+        self.verbose = verbose
         self.base_windfield = base_windfield
         self.integrator = Integrator(integrator)
         self.ivp_name = integrator
@@ -145,6 +146,13 @@ class CurledWakeWindfield(Windfield):
                 UserWarning,
             )
         
+        # The grid will get initialized later in check_grid_init()
+        self.grid = None  # list of [x, y, z] axes
+        self.bottom_wall_z = -np.inf if bottom_wall_z is None else bottom_wall_z
+
+        self.smooth_fact = dy if smooth_fact is None else smooth_fact  # smoothing factor for the IC stencil
+        self.turbines = []
+
         # ============ field evolution modules ============
         self.shared_flow_data = dict()  # initalize this before loading modules
         
@@ -165,15 +173,6 @@ class CurledWakeWindfield(Windfield):
         )
         self.fields_to_integrate = [k for k, v in self.modules.items() if v.march_field]
         self.fields_other = [k for k, v in self.modules.items() if not v.march_field]
-
-        # The grid will get initialized later in check_grid_init()
-        self.grid = None  # list of [x, y, z] axes
-        self.bottom_wall_z = -np.inf if bottom_wall_z is None else bottom_wall_z
-
-        self.smooth_fact = dy if smooth_fact is None else smooth_fact  # smoothing factor for the IC stencil
-        self.turbines = []
-
-        self.verbose = verbose
 
     def wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
         self.march_to(x=x, y=y, z=z)  # check that the forward marching is sufficient
@@ -257,9 +256,6 @@ class CurledWakeWindfield(Windfield):
                 f"Turbine at zt={zt} with D={D} intersects bottom wall at z={self.bottom_wall_z}"
             )
 
-        # first, add the turbine to the list of turbines
-        self.turbines.append(TurbineProperties(xt, yt, zt, D, rotor))
-
         # adjust grid bounds if necessary
         self.adjust_grid_bounds(x=None, y=yt, z=zt, add_buffers=True)
 
@@ -288,8 +284,8 @@ class CurledWakeWindfield(Windfield):
             )
 
             # stamp the rotor solution into the wind field
-            delta_u = rotor.u4 - rotor.REWS  # delta_u, adjusted by REWS
-            self.du[-1, ...] += shape * delta_u
+            delta_u = shape * (rotor.u4 - rotor.REWS)  # delta_u, adjusted by REWS
+            self.du[-1, ...] += delta_u
         else:
             # RECOMMENDED: enforce momentum conservation with this method
             delta_u = ic_stencil_corrected(
@@ -301,6 +297,9 @@ class CurledWakeWindfield(Windfield):
                 smooth_fact=smooth_fact,
             )
             self.du[-1, ...] += delta_u
+
+        # first, add the turbine to the list of turbines
+        self.turbines.append(TurbineProperties(xt, yt, zt, D, rotor, delta_u))
 
         # dv, dw initial conditions:
         if eff_yaw == 0:
@@ -324,8 +323,8 @@ class CurledWakeWindfield(Windfield):
         )
         # symmetry vortices (negative in sign, centered around zt_ghost)
         if self.bottom_wall_z > -np.inf:
-            # zt_ghost < 0; if bottom_wall_z = 0, then this is -zt
-            zt_ghost = -zt - self.bottom_wall_z * 2
+            # zt_ghost = z_wall - z_hub = z_wall - (z_t - z_wall)
+            zt_ghost = self.bottom_wall_z * 2 - zt
             vghost, wghost = compute_vortex_field(
                 self.y,
                 self.z,
@@ -459,14 +458,17 @@ class CurledWakeWindfield(Windfield):
                 * 3
                 / 2
             )
-            vars["u"] = vars["du"] + wsp * np.cos(wdir)
-            vars["v"] = vars["dv"] + wsp * np.sin(wdir)
+            vars["ub"] = wsp * np.cos(wdir)
+            vars["vb"] = wsp * np.sin(wdir)
+            vars["u"] = vars["du"] + vars["ub"]
+            vars["v"] = vars["dv"] + vars["vb"]
             vars["w"] = vars["dw"] + 0
             vars["kb"] = kb
             vars["k"] = vars["dk"] + vars["kb"]
 
             if (self.clip_u > 0) and np.any(vars["u"] < self.clip_u):
                 vars["u"] = np.clip(vars["u"], self.clip_u, None)
+                # vars["du"] = vars["u"] - wsp * np.cos(wdir)  # also "clip" du
 
             self.shared_flow_data = vars  # store this in a global variable
             self._impose_wall_conditions()  # impose wall conditions if necessary
@@ -692,6 +694,7 @@ class TurbineProperties:
     zt: float
     D: float
     rotor_solution: RotorSolution
+    IC: ArrayLike
 
 
 # ███████ ██ ███████ ██      ██████       ██████ ██       █████  ███████ ███████
@@ -1346,7 +1349,8 @@ def ic_stencil_corrected(
         ) * (rotor.u4 - rotor.REWS)
         integrand = (rotor.REWS + ic) * ic
         int_mom_def = np.trapz(np.trapz(integrand, z), y)
-        err = np.abs(int_mom_def + rotor.Ct * np.pi / 8) / np.abs(int_mom_def)
+        thrust_x = rotor.Ct * np.pi / 8 * np.cos(rotor.yaw)
+        err = np.abs(int_mom_def + thrust_x) / np.abs(int_mom_def)
         if err < tol:
             break
         if _ == max_iter - 1:
@@ -1354,7 +1358,7 @@ def ic_stencil_corrected(
                 f"ic_stencil_corrected did not converge in {max_iter} iterations, final error {err:.4e}"
             )
 
-        r4_new = guess * np.sqrt((-rotor.Ct * np.pi / 8) / int_mom_def)
+        r4_new = guess * np.sqrt(-thrust_x / int_mom_def)
         guess = r4_new
     return ic
 
