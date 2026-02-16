@@ -81,6 +81,23 @@ class Windfield(ABC):
         """
         pass
 
+    def tke(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Calculate turbulent kinetic energy at specified coordinates.
+        tke = 1.5 * (TI * U)^2 from the definition TI = sqrt(2/3 * k) / U
+
+        Parameters:
+        - x: x-coordinates.
+        - y: y-coordinates.
+        - z: z-coordinates.
+
+        Returns:
+        ArrayLike: Turbulent kinetic energy at the specified coordinates.
+        """
+        TI = self.TI(x, y, z)
+        U = self.wsp(x, y, z)
+        return 1.5 * (TI * U) ** 2
+
 
 class Uniform(Windfield):
     """
@@ -214,7 +231,7 @@ class Superimposed(Windfield):
         Returns:
         ArrayLike: Array of ind speed based on the windfield's wakes with the same shape as input coordinates.
         """
-        wsp_base = self.base_windfield.wsp(x, y, z)
+        wsp_base = self.base_windfield.wsp(x, y, z) * np.cos(self.base_windfield.wdir(x, y, z))
         deficits = []
         for wake in self.wakes:
             # calculate wake deficit
