@@ -81,7 +81,7 @@ class VortexWakeModel(WakeModel):
             - y: float, y-coordinate of the turbine
             - z: float, z-coordinate of the turbine
             - rotor_sol: RotorSolution, solution object containing rotor parameters
-            - TIamb: float, ambient turbulence intensity (default: None)
+            - TIamb: UNUSED (legacy) - use rotor_sol.TI instead
         - Returns:
             - VortexWake instance with the specified parameters.
         """
@@ -96,6 +96,85 @@ class VortexWakeModel(WakeModel):
             ustar=self.ustar,
             windfield=self.windfield,
             z_wall=self.z_wall,
+            TIamb=rotor_sol.TI,  # this is rotor TI
+        )
+
+
+class VariableVortexWakeModel(VortexWakeModel):
+    """
+    Defines a vortex wake model based on the work of Narasimhan, Gayme, and Meneveau (2025)
+    which extends the work of Bastankhah et al. JFM (2022) to include wind veer effects.
+
+    Here, we parameterize the variable wake spreading rate through the relationship
+    proposed in Niayifar and Porte-Agel (2016): 
+        kw = 0.3837 * TIamb + 0.003678
+
+    __init__: 
+        - Args
+            - a: float, TI dependence on kw (default: 0.3837)
+            - b: float, constant offset on kw (default: 0.003678)
+            - R: float, rotor radius (default: 0.5)
+            - alpha: float, shape parameter for wake deformation (default: 1.263)
+            - ustar: float, friction velocity for ground effect modeling (default: None)
+            - windfield: windfield for veer deformation (default: None)
+            - z_wall: bool, whether to include ground effect modeling (default: None - no wall)
+    __call__: function to create a VortexWake instance called by the wake model solver
+        - Args
+            - x: float, x-coordinate of the turbine
+            - y: float, y-coordinate of the turbine
+            - z: float, z-coordinate of the turbine
+            - rotor_sol: RotorSolution, solution object containing rotor parameters
+            - TIamb: float, ambient turbulence intensity (default: None)
+        - Returns:
+            - VortexWake instance with the specified parameters.
+    """
+    def __init__(
+        self,
+        a: float = 0.3837,
+        b: float = 0.003678,
+        R: float = 0.5,
+        alpha: float = 1.263,
+        ustar: Optional[float] = None,
+        windfield: Optional["Windfield"] = None,
+        z_wall: bool = None,
+    ):
+        """
+        Defines a vortex wake model based on the work of Narasimhan, Gayme, and Meneveau (2025)
+        which extends the work of Bastankhah et al. JFM (2022) to include wind veer effects.
+
+        - Args
+            - a: float, TI dependence on kw (default: 0.3837)
+            - b: float, constant offset on kw (default: 0.003678)
+            - R: float, rotor radius (default: 0.5)
+            - alpha: float, shape parameter for wake deformation (default: 1.263)
+            - ustar: float, friction velocity for ground effect modeling (default: None)
+            - windfield: windfield for veer deformation (default: None)
+            - z_wall: bool, whether to include ground effect modeling (default: None - no wall)
+        """
+        super().__init__(
+            kw=None,
+            R=R,
+            alpha=alpha,
+            ustar=ustar,
+            windfield=windfield,
+            z_wall=z_wall,
+        )
+        self.a = a
+        self.b = b
+
+    def __call__(
+        self, x, y, z, rotor_sol: "RotorSolution", TIamb: float = None
+    ) -> "VortexWake":
+        return VortexWake(
+            x, y, z,
+            rotor_sol,
+            kw=self.a * rotor_sol.TI + self.b,  # compute on-the-fly
+            alpha=self.alpha,
+            R=self.R,
+            ustar=self.ustar,
+            windfield=self.windfield,
+            z_wall=self.z_wall,
+            TIamb=rotor_sol.TI,
         )
 
 
@@ -139,7 +218,10 @@ class VortexWake(Wake):
         include cos(yaw)^2 in the denominator, so the equation for
         A_star omits the cos(yaw)^2 terms multiplied by C_T.
         """
-        return (1 + np.sqrt(1 - self.Ct)) / 2 / np.sqrt(1 - self.Ct)
+        # return (1 + np.sqrt(1 - self.Ct)) / 2 / np.sqrt(1 - self.Ct)
+        an = self.rotor_sol.an / self.rotor_sol.REWS
+        u4 = self.rotor_sol.u4 / self.rotor_sol.REWS
+        return (1 - an) / u4
 
     def du(self, x):
         """
@@ -380,6 +462,7 @@ class VortexWake(Wake):
         x = np.atleast_1d(x)
         if self.windfield is not None and self.TIamb is None: 
             # NOTE: this is not the same as self.rotor_sol.RETI, which includes upstream wakes
+            # But the dependence on TIamb is weak (only ~10% difference between 1% and 20% TI)
             TIamb = self.windfield.TI(self.x, self.y, self.z)
             self.TIamb = TIamb
 
