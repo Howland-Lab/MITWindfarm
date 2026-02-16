@@ -267,6 +267,7 @@ class VariableKwGaussianWakeModel(WakeModel):
         sigma: float = 1 / np.sqrt(8),
         WATI_sigma_multiplier=1.0,
         xmax: float = 100.0,
+        x0: float = 1,
     ):
         self.a = a
         self.b = b
@@ -274,11 +275,13 @@ class VariableKwGaussianWakeModel(WakeModel):
         self.sigma = sigma
         self.xmax = xmax
         self.WATI_sigma_multiplier = WATI_sigma_multiplier
+        self.x0 = x0
 
     def __call__(
         self, x, y, z, rotor_sol: "RotorSolution", TIamb: float = None
     ) -> GaussianWake:
         kw = self.a * rotor_sol.TI + self.b * rotor_sol.Ctprime + self.c
+        x0 = rotor_sol.extra.x0 if self.x0 is None else self.x0
         return GaussianWake(
             x,
             y,
@@ -289,4 +292,5 @@ class VariableKwGaussianWakeModel(WakeModel):
             TIamb=TIamb,
             xmax=self.xmax,
             WATI_sigma_multiplier=self.WATI_sigma_multiplier,
+            x0=x0
         )
