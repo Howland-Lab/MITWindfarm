@@ -146,7 +146,7 @@ class CurledWakeWindfield(Windfield):
                 UserWarning,
             )
         
-        # The grid will get initialized later in check_grid_init()
+        # The grid will get initialized later in ()
         self.grid = None  # list of [x, y, z] axes
         self.bottom_wall_z = -np.inf if bottom_wall_z is None else bottom_wall_z
 
@@ -160,17 +160,18 @@ class CurledWakeWindfield(Windfield):
         v_kwargs = dict() if v_kwargs is None else v_kwargs
         w_kwargs = dict() if w_kwargs is None else w_kwargs
         k_kwargs = dict() if k_kwargs is None else k_kwargs
+        self.k_model, self.u_model, self.v_model, self.w_model = k_model, u_model, v_model, w_model
         # Initialize the modules for u, v, w, and k
-        self.modules = dict(
-            du=CurledUModel.get_model(u_model, curledwake=self, **u_kwargs),
-            dv=CurledVModel.get_model(v_model, curledwake=self, **v_kwargs),
-            dw=CurledWModel.get_model(w_model, curledwake=self, **w_kwargs),
-            dk=CurledTurbulenceModel.get_model(
-                k_model,
-                curledwake=self,
-                **k_kwargs,
-            ),
-        )
+        self.modules = dict()
+        self.modules["dk"] = CurledTurbulenceModel.get_model(
+            self.k_model,
+            curledwake=self,
+            **k_kwargs,
+        )  # initial dk first; dv, dw may depend on dk
+        self.modules["du"] = CurledUModel.get_model(self.u_model, curledwake=self, **u_kwargs)
+        self.modules["dv"] = CurledVModel.get_model(self.v_model, curledwake=self, **v_kwargs)
+        self.modules["dw"] = CurledWModel.get_model(self.w_model, curledwake=self, **w_kwargs)
+
         self.fields_to_integrate = [k for k, v in self.modules.items() if v.march_field]
         self.fields_other = [k for k, v in self.modules.items() if not v.march_field]
 
@@ -517,14 +518,24 @@ class CurledWakeWindfield(Windfield):
         """Returns a flattened initial condition array for marched variables"""
         ic = []
         for name in self.fields_to_integrate:
-            ic.append(self.modules[name].field[-1, ...])
-        ic = np.stack(ic, axis=-1)
-        return ic.flatten()
+            ic.append(self.modules[name].field[-1, ...].flatten())
+            self.modules[name].shape = self.modules[name].field[-1, ...].shape
+        #     ic.append(self.modules[name].field[-1, ...])
+        # ic = np.stack(ic, axis=-1)
+        # return ic.flatten()
+        return np.concatenate(ic)  # returns N x 1 array
 
     def _unpack_inputs(self, x, state: ArrayLike) -> ArrayLike:
         """Returns a dictionary of variables from the flattened state reshaped to (ny, nz)"""
-        reshape = state.reshape(self.shape[1:] + (len(self.fields_to_integrate),))
-        ret = {name: reshape[..., i] for i, name in enumerate(self.fields_to_integrate)}
+        # reshape = state.reshape(self.shape[1:] + (len(self.fields_to_integrate),))
+        # ret = {name: reshape[..., i] for i, name in enumerate(self.fields_to_integrate)}
+        ret = dict()
+        for name in self.fields_to_integrate:
+            shape = self.modules[name].shape
+            size = np.prod(shape)
+            ret[name] = state[:size].reshape(shape)
+            state = state[size:]  # clip these from `state` to load the next variable
+
         # compute the fields that aren't in the inputs
         for name in self.fields_other:
             ret[name] = self.modules[name].get_field_x(x)
@@ -537,29 +548,34 @@ class CurledWakeWindfield(Windfield):
         """
         flow = self.shared_flow_data
         for key in self.fields_to_integrate:
+            if not self.modules[key].impose_wall:
+                continue
+
             if self.bottom_wall_z > -np.inf and self.bottom_wall_z > np.min(self.z):
                 # update boundary conditions with symmetry condition
                 zid = np.argmin(np.abs(self.z - self.bottom_wall_z))  # zid at the wall
                 ghost_id = zid - 1  # ghost point below the wall; should always be = 0
                 mirror_id = zid + 1  # mirror point above the wall; should always be = 2
-                flow[key][..., ghost_id] = flow[key][..., mirror_id]
+                flow[key][:, ghost_id] = flow[key][:, mirror_id]
 
             elif self.zero_at_boundaries:
                 # if no wall, impose zero at the bottom boundary
-                flow[key][..., 0] = 0
-            
+                flow[key][:, 0] = 0
+
             if self.zero_at_boundaries:
                 # also impose zero at the top and both y-boundaries
-                flow[key][..., -1] = 0
-                flow[key][0, ...] = 0
-                flow[key][-1, ...] = 0 
+                flow[key][:, -1] = 0
+                flow[key][0, :] = 0
+                flow[key][-1, :] = 0 
 
     def _return_derivatives(self, x) -> ArrayLike:
         """Returns a flattened array of the outputs from _step"""
         ret = []
         for name in self.fields_to_integrate:
-            ret.append(self.modules[name].ddx(x))
-        return np.stack(ret, axis=-1).flatten()
+            ret.append(self.modules[name].ddx(x).flatten())
+        return np.concatenate(ret)  # returns N x 1 array
+        #     ret.append(self.modules[name].ddx(x))
+        # return np.stack(ret, axis=-1).flatten()
 
     def _finalize_outputs(self, xnew: ArrayLike, ret: ArrayLike):
         """
@@ -570,17 +586,26 @@ class CurledWakeWindfield(Windfield):
         -------
         None
         """
-        shape = (len(xnew), *self.shape[1:], len(self.fields_to_integrate))
-        reshape = ret.reshape(shape)
-        # concatenate fields along x:
-        for i, name in enumerate(self.fields_to_integrate):
+        # ret is Nx x Ntot
+        for name in self.fields_to_integrate:
             m = self.modules[name]
-            m.field = np.concatenate([m.field, reshape[..., i]], axis=0)
+            size = np.prod(m.shape)
+            m.field = np.concatenate([m.field, ret[:, :size].reshape((len(xnew), *m.shape))], axis=0)
+            m.x = np.concatenate([m.x, xnew])
+            ret = ret[:, size:]  # clip these from the state for the next variable
+
+        # shape = (len(xnew), *self.shape[1:], len(self.fields_to_integrate))
+        # reshape = ret.reshape(shape)
+        # # concatenate fields along x:
+        # for i, name in enumerate(self.fields_to_integrate):
+        #     m = self.modules[name]
+        #     m.field = np.concatenate([m.field, reshape[..., i]], axis=0)
 
         # now compute the analytical fields which are not marched in space
         for name in self.fields_other:
             m = self.modules[name]
             m.field = np.concatenate([m.field, m.get_field_x(xnew)], axis=0)
+            m.x = np.concatenate([m.x, xnew])
 
     def _check_yz_bounds(self, x, vars):
         """
@@ -716,10 +741,13 @@ class Field(ABC):
         Initializes the field with a link to the curled wake solver object.
         """
         self.curledwake = curledwake
-        self.field = None  # this will be initialized in a separate function
+        self.field = None  # this will be initialized in curledwake.check_grid_init() for du, dv, dw, dk
         self.march_field = False  # whether this field evolves in space
         self.check_yz = False
         self.bound_thresh = None
+        self.shape = None  # this will be updated throughout
+        self.impose_wall = True
+        self.x = np.array([0])
 
     def ddx(self):
         """Returns the derivative d(field)/dx if self.march_field is True"""
@@ -743,9 +771,9 @@ class Field(ABC):
                 ret.append(self.get_field_x(_x))
             return np.stack(ret, axis=0)
 
-    @property
-    def x(self):
-        return self.curledwake.grid[0]
+    # @property
+    # def x(self):
+    #     return self.curledwake.grid[0]
 
     def __repr__(self):
         return f"CurledWakeField: {self.__class__.__name__}"
@@ -760,7 +788,7 @@ class CurledUModel(Field):
     name: str  # fill this in for each model
 
     def __init__(self, curledwake: CurledWakeWindfield):
-        self.curledwake = curledwake  # link to the curled wake solver object
+        super().__init__(curledwake=curledwake)  # link to the curled wake solver object
 
     def __init_subclass__(cls, **kwargs):
         """
@@ -833,7 +861,7 @@ class CurledVModel(Field):
     name: str  # fill this in for each model
 
     def __init__(self, curledwake: CurledWakeWindfield):
-        self.curledwake = curledwake  # link to the curled wake solver object
+        super().__init__(curledwake=curledwake)  # link to the curled wake solver object
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -869,7 +897,7 @@ class DefaultVModel(CurledVModel):
         self.march_field = False  # v does not evolve in space
 
 
-class MarchedVMdodel(CurledVModel):
+class MarchedVModel(CurledVModel):
     """
     Forward-marched v-model which includes ABL effects, turbulence, and
     Coriolis forces.
@@ -910,7 +938,7 @@ class CurledWModel(Field):
     name: str  # fill this in for each model
 
     def __init__(self, curledwake: CurledWakeWindfield):
-        self.curledwake = curledwake  # link to the curled wake solver object
+        super().__init__(curledwake=curledwake)  # link to the curled wake solver object
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -975,7 +1003,7 @@ class CurledTurbulenceModel(Field):
     name: str  # fill this in for each model
 
     def __init__(self, curledwake: CurledWakeWindfield):
-        self.curledwake = curledwake  # link to the curled wake solver object
+        super().__init__(curledwake=curledwake)  # link to the curled wake solver object
         self.march_field = False
 
     def __init_subclass__(cls, **kwargs):
@@ -1183,7 +1211,7 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
         """
         y = self.curledwake.grid[1]
         z = self.curledwake.grid[2]
-        nu_T = self.nu_T_cached
+        nu_T = self.nu_T(x)  # TODO: reduce redundancy here with du module?
         vars = self.curledwake.shared_flow_data
         u, v, w, du, dk = [vars[name] for name in ["u", "v", "w", "du", "dk"]]
         lmix = self._lmix(x)
@@ -1217,7 +1245,7 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
 # ██       ██████  ██   ████  ██████    ██    ██  ██████  ██   ████ ███████
 
 
-def compute_vortex_field(
+def compute_vortex_field1(
     y,
     z,
     yt,
@@ -1256,12 +1284,14 @@ def compute_vortex_field(
     d_yx = np.maximum(dy, dz)
     # along z-axis in yaw-only frame (also the radial distance of each point from center in any frame)
     r_i = np.linspace(-(D - d_yx) / 2, (D - d_yx) / 2, N_vortex)
+    # r_i = np.array([-D/2, D/2])
     # rotate points into yaw-and-tilt frame
     _, y_i, z_i = eff_yaw_inv_rotation(np.zeros_like(r_i), np.zeros_like(r_i), r_i, eff_yaw, yaw, tilt)
 
     Gamma_i = (
         Gamma_0 * 4 * r_i / (N_vortex * D * np.sqrt(1 - (2 * r_i / D) ** 2))
     )
+    # Gamma_i = Gamma_0 * np.array([-1, 1])
     sigma = sigma_vortex * D
 
     # now we build the main summation, which is 3D (y, z, i)
@@ -1280,6 +1310,67 @@ def compute_vortex_field(
     w = np.sum(summation * -(yG - yt - y_i[None, None, :]), axis=-1)
 
     return v, w
+
+
+def compute_vortex_field(
+    y,
+    z,
+    yt,
+    zt,
+    Gamma_0,
+    D=1,
+    sigma_vortex=0.1,
+    N_vortex=12,
+    eff_yaw=0.0,
+    yaw=0.0,
+    tilt=0.0,
+):
+    """
+    Computes the induced velocity field using Cosine-Spaced discrete vortex filaments.
+    This avoids the tip singularity issues of equispaced lifting lines.
+    """
+    sigma = sigma_vortex * D
+    
+    # Discretize the disk using cosine spacing
+    # We define N+1 points for Gamma, which gives us N vortex filaments (segments)
+    theta = np.linspace(0, np.pi, N_vortex + 1)
+    
+    # Map back to physical Z coordinates (vertical axis of the disk)
+    z_nodes = -D / 2.0 * np.cos(theta) 
+    
+    # Calculate circulation Gamma at these nodes: Gamma = G0 * sin(theta)
+    Gamma_nodes = Gamma_0 * np.sin(theta)
+    
+    # Determine filament strength: discrete d(Gamma)/dz
+    filament_strengths = np.diff(Gamma_nodes)
+    
+    # Place the filament at the midpoint of the segment in z-space and apply inv rotation
+    r_i = (z_nodes[:-1] + z_nodes[1:]) / 2.0
+    _, y_i, z_i = eff_yaw_inv_rotation(np.zeros_like(r_i), np.zeros_like(r_i), r_i, eff_yaw, yaw, tilt)
+
+    # Vectorized Biot-Savart summation: (Ny, Nz, N_vortex)
+    yy, zz = np.meshgrid(y, z, indexing="ij")
+    y_grid = (yy - yt)[..., None]
+    z_grid = (zz - zt)[..., None]
+    
+    y_source = y_i[None, None, :]
+    z_source = z_i[None, None, :]
+    
+    gamma_source = filament_strengths[None, None, :]
+    
+    # Distance squared
+    r_sq = (y_grid - y_source)**2 + (z_grid - z_source)**2
+    r_sq = np.maximum(r_sq, 1e-10) # Avoid exact singularity
+    
+    # Lamb-Oseen decay factor
+    decay = 1.0 - np.exp(-r_sq / (sigma**2))
+    
+    # Induced velocity (Biot-Savart)
+    factor = (decay / (2 * np.pi * r_sq)) * gamma_source
+    v_induced = np.sum(factor * -(z_grid - z_source), axis=-1)
+    w_induced = np.sum(factor * (y_grid - y_source), axis=-1)
+    
+    return v_induced, w_induced
 
 
 def check_state_bounds(state, thresh=1e-4, exclude_wall_points=False):
