@@ -241,7 +241,6 @@ class CurledWakeWindfield(Windfield):
         xt,
         yt,
         zt,
-        smooth_fact=None,
         D=1,
     ) -> None:
         """
@@ -249,7 +248,7 @@ class CurledWakeWindfield(Windfield):
 
         Parameters:
         - rotor: The rotor solution to stamp into the wind field.
-        - smooth_fact: Smoothing factor for the initial condition stencil.
+        - xt, yt, zt: Coordinates of the rotor center.
         - D: Diameter of the rotor (default: 1).
         """
         if (zt - D / 2) < self.bottom_wall_z:
@@ -260,6 +259,14 @@ class CurledWakeWindfield(Windfield):
         # adjust grid bounds if necessary
         self.adjust_grid_bounds(x=None, y=yt, z=zt, add_buffers=True)
 
+        # first, add the turbine to the list of turbines
+        turbine = TurbineProperties(xt, yt, zt, D, rotor)
+        self.turbines.append(turbine)  # , delta_u))
+
+        for name, module in self.modules.items():
+            module.stamp_ic(turbine)  # do anything initial condition-related
+
+        return
         # streamwise velocity initial condition:
         smooth_fact = self.smooth_fact if smooth_fact is None else smooth_fact
         eff_yaw = calc_eff_yaw(rotor.yaw, rotor.tilt)
@@ -299,8 +306,6 @@ class CurledWakeWindfield(Windfield):
             )
             self.du[-1, ...] += delta_u
 
-        # first, add the turbine to the list of turbines
-        self.turbines.append(TurbineProperties(xt, yt, zt, D, rotor, delta_u))
 
         # dv, dw initial conditions:
         if eff_yaw == 0:
@@ -719,7 +724,7 @@ class TurbineProperties:
     zt: float
     D: float
     rotor_solution: RotorSolution
-    IC: ArrayLike
+    # IC: ArrayLike
 
 
 # ███████ ██ ███████ ██      ██████       ██████ ██       █████  ███████ ███████
@@ -771,9 +776,9 @@ class Field(ABC):
                 ret.append(self.get_field_x(_x))
             return np.stack(ret, axis=0)
 
-    # @property
-    # def x(self):
-    #     return self.curledwake.grid[0]
+    def stamp_ic(self, turbine: TurbineProperties):
+        """Any code that should be executed when a new turbine is added goes here"""
+        ...
 
     def __repr__(self):
         return f"CurledWakeField: {self.__class__.__name__}"
@@ -828,6 +833,49 @@ class DefaultUModel(CurledUModel):
         self.march_field = True
         self.check_yz = True
         self.bound_thresh = thresh  # abs threshold for checking bounds
+
+    def stamp_ic(self, turbine: TurbineProperties):
+        """Stamp the initial condition of the rotor solution into the du field."""
+        curl = self.curledwake
+        rotor = turbine.rotor_solution
+        eff_yaw = calc_eff_yaw(rotor.yaw, rotor.tilt)
+
+        if isinstance(curl.use_r4, bool):
+            r4 = (
+                np.sqrt((1 - rotor.extra.an) / rotor.extra.u4) * turbine.D / 2
+                if curl.use_r4
+                else turbine.D / 2
+            )
+            # create stencil
+            shape = ic_stencil(
+                curl.y,
+                curl.z,
+                turbine.yt,
+                turbine.zt,
+                smooth_fact=curl.smooth_fact,
+                r4 = r4,
+                eff_yaw = eff_yaw,
+                yaw = rotor.yaw,
+                tilt = rotor.tilt,
+            )
+            # stamp the rotor solution into the wind field
+            delta_u = shape * (rotor.u4 - rotor.REWS)  # delta_u, adjusted by REWS
+
+        else:
+            # RECOMMENDED METHOD: enforce momentum conservation with this method
+            delta_u = ic_stencil_corrected(
+                curl.y,
+                curl.z,
+                turbine.yt,
+                turbine.zt,
+                rotor,
+                smooth_fact=curl.smooth_fact,
+            )
+            
+        self.field[-1, ...] += delta_u
+        turbine.ic = np.abs(delta_u) / np.max(np.abs(delta_u))  # store this for near-wake
+        turbine.y = curl.y
+        turbine.z = curl.z
 
     def ddx(self, x):
         """Computes d(du)/dx at location x"""
@@ -896,6 +944,12 @@ class DefaultVModel(CurledVModel):
         super().__init__(curledwake=curledwake)
         self.march_field = False  # v does not evolve in space
 
+    def stamp_ic(self, turbine: TurbineProperties):
+        """Stamp the initial condition of the rotor solution into the dv field."""
+        curl = self.curledwake
+        v, _ = vortex_field_from_turbine(turbine, curl.y, curl.z, curl.N_vortex, curl.bottom_wall_z, curl.sigma_vortex)
+        self.field[-1, ...] += v
+
 
 class MarchedVModel(CurledVModel):
     """
@@ -910,6 +964,12 @@ class MarchedVModel(CurledVModel):
         self.march_field = True
         self.check_yz = check_zy
         self.Ro = Ro  # Rossby number with vertical rotation effects Ro = u_h/(fc * D)
+
+    def stamp_ic(self, turbine: TurbineProperties):
+        """Stamp the initial condition of the rotor solution into the dv field."""
+        curl = self.curledwake
+        v, _ = vortex_field_from_turbine(turbine, curl.y, curl.z, curl.N_vortex, curl.bottom_wall_z, curl.sigma_vortex)
+        self.field[-1, ...] += v
 
     def ddx(self, x):
         """Computes d(du)/dx at location x"""
@@ -972,6 +1032,12 @@ class DefaultWModel(CurledWModel):
     def __init__(self, curledwake: CurledWakeWindfield):
         super().__init__(curledwake=curledwake)
         self.march_field = False  # v does not evolve in space
+
+    def stamp_ic(self, turbine: TurbineProperties):
+        """Stamp the initial condition of the rotor solution into the dv field."""
+        curl = self.curledwake
+        _, w = vortex_field_from_turbine(turbine, curl.y, curl.z, curl.N_vortex, curl.bottom_wall_z, curl.sigma_vortex)
+        self.field[-1, ...] += w
 
 
 # ████████ ██    ██ ██████  ██████  ██    ██ ██      ███████ ███    ██  ██████ ███████     ███    ███  ██████  ██████  ███████ ██      ███████
@@ -1373,6 +1439,56 @@ def compute_vortex_field(
     return v_induced, w_induced
 
 
+def vortex_field_from_turbine(turbine, y, z, N_vortex=12, bottom_wall_z=-np.inf, sigma=0.2):
+    """
+    Computes the vorticity field given turbine properties for a curled wake grid.
+    """
+    rotor = turbine.rotor_solution
+    eff_yaw = calc_eff_yaw(rotor.yaw, rotor.tilt)
+
+    # dv, dw initial conditions:
+    if eff_yaw == 0:
+        return (0, 0)  # no additional dv, dw to stamp in for this turbine
+
+    # NOTE: rotor.Ct differs from Shapiro et al. (2018) definition - includes cos^2(yaw) already
+    Gamma_0 = 0.5 * turbine.D * rotor.REWS * rotor.Ct * np.sin(eff_yaw)
+
+    v, w = compute_vortex_field(
+        y,
+        z,
+        yt=turbine.yt,
+        zt=turbine.zt,
+        Gamma_0=Gamma_0,
+        D=turbine.D,
+        sigma_vortex=sigma,
+        N_vortex=N_vortex,
+        eff_yaw=eff_yaw,
+        yaw=rotor.yaw,
+        tilt=rotor.tilt,
+    )
+    # symmetry vortices (negative in tilt, centered around zt_ghost)
+    if bottom_wall_z > -np.inf:
+        # zt_ghost = z_wall - z_hub = z_wall - (z_t - z_wall)
+        zt_ghost = bottom_wall_z * 2 - turbine.zt
+        vghost, wghost = compute_vortex_field(
+            y,
+            z,
+            yt=turbine.yt,
+            zt=zt_ghost,
+            Gamma_0=Gamma_0,
+            D=turbine.D,
+            sigma_vortex=sigma,
+            N_vortex=N_vortex,
+            eff_yaw=eff_yaw,
+            yaw=rotor.yaw,
+            tilt=-rotor.tilt,  # mirror the circulation for tilt
+        )
+        v += vghost
+        w += wghost
+
+    return v, w
+
+
 def check_state_bounds(state, thresh=1e-4, exclude_wall_points=False):
     """
     Check values of 2D array `state` at the boundaries to see
@@ -1432,16 +1548,17 @@ def ic_stencil_corrected(
 
     Typically converges in 3-4 iterations.
     """
-    guess = 0.5  #  * np.sqrt((1 - rotor.an) / rotor.u4)  # inital guess
+    guess_r = 0.5  #  * np.sqrt((1 - rotor.an) / rotor.u4)  # inital guess for IC radius
     eff_yaw = calc_eff_yaw(rotor.yaw, rotor.tilt)
     for _ in range(max_iter):
-        ic = ic_stencil(
-            y, z, yt, zt, smooth_fact, guess, eff_yaw=eff_yaw, yaw=rotor.yaw, tilt=rotor.tilt
-        ) * (rotor.u4 - rotor.REWS)
-        integrand = (rotor.REWS + ic) * ic
+        shape = ic_stencil(
+            y, z, yt, zt, smooth_fact, guess_r, eff_yaw=eff_yaw, yaw=rotor.yaw, tilt=rotor.tilt
+        ) 
+        du = shape * (rotor.u4 - rotor.REWS)
+        integrand = (rotor.REWS + du) * du #+ rotor.extra.dp * rotor.REWS**2 * shape
         int_mom_def = np.trapz(np.trapz(integrand, z), y)
-        thrust_x = rotor.Ct * np.pi / 8 * np.cos(rotor.yaw)
-        err = np.abs(int_mom_def + thrust_x) / np.abs(int_mom_def)
+        thrust_x = -rotor.Ct * np.pi / 8 * np.cos(rotor.yaw)
+        err = np.abs(int_mom_def - thrust_x) / np.abs(int_mom_def)
         if err < tol:
             break
         if _ == max_iter - 1:
@@ -1449,9 +1566,10 @@ def ic_stencil_corrected(
                 f"ic_stencil_corrected did not converge in {max_iter} iterations, final error {err:.4e}"
             )
 
-        r4_new = guess * np.sqrt(-thrust_x / int_mom_def)
-        guess = r4_new
-    return ic
+        r4_new = guess_r * np.sqrt(thrust_x / int_mom_def)
+        guess_r = r4_new
+    # print(f"DEBUG: r4 converged to {guess_r:.4f} in {_+1} iterations with final error {err:.4e}")
+    return du
 
 
 def get_wake_bounds_y(du_y, thresh=0.05, relative=True):
