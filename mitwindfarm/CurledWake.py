@@ -1609,9 +1609,10 @@ def ic_stencil_corrected(
         # M(x0) / M(0) = (REWS - du_amp * Lambda(sigma_0/r4) / 2) / (REWS - du_amp)
         # so: target at x=0 = thrust_x * (REWS - du_amp) / (REWS - du_amp * Lambda(sigma_0/r4) / 2)
         if sigma_diff > 0:
-            sigma_0 = np.sqrt(smooth_fact**2 + sigma_diff**2)
-            lam = ali_lambda(sigma_0 / guess_r)
-            ali_factor = (rotor.REWS - du_amp) / (rotor.REWS - du_amp * lam / 2)
+            # sigma_0 = np.sqrt(smooth_fact**2 + sigma_diff**2)
+            lam = ali_lambda(sigma_diff / guess_r)
+            lam_0 = ali_lambda(smooth_fact / guess_r)
+            ali_factor = (rotor.REWS - du_amp * lam_0 / 2) / (rotor.REWS - du_amp * lam / 2)
             target = thrust_x * ali_factor
         else:
             target = thrust_x  # original behavior
