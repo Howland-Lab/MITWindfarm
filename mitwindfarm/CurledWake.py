@@ -15,6 +15,7 @@ from numpy.typing import ArrayLike
 import numpy as np
 from scipy.ndimage import gaussian_filter
 from scipy.interpolate import interpn, make_interp_spline
+from scipy.special import erf
 
 from mitwindfarm.Windfield import Windfield
 from mitwindfarm.Rotor import RotorSolution
@@ -76,6 +77,7 @@ class CurledWakeWindfield(Windfield):
         zero_at_boundaries: bool = True,
         clip_u: float = 0.1,
         use_r4: bool = False,
+        sigma_diff_ic: float = 0.0,
         auto_expand: bool = True,
         verbose: bool = False,
     ):
@@ -114,6 +116,11 @@ class CurledWakeWindfield(Windfield):
         - clip_u: Whether to clip the u-velocity to prevent negative values (default: 0.1).
             Set to <= 0 to disable clipping
         - use_r4: Whether to use the r4 or rotor radius for initial conditions (default: True).
+        - sigma_diff_ic: Near-wake diffusion length scale sigma_diff(x0) for the Ali et al. (2024)
+            momentum-corrected IC (non-dim, units of D). Combined with smooth_fact to give the
+            total effective diffusion at x0, correcting the ic_stencil_corrected Newton target so
+            that M(x0) = -T/rho rather than M(0) = -T/rho. Default 0.0 (no correction, matches
+            current behavior). Rough estimate: sqrt(2 * C_nu * l_nw^2 * TI * x0).
         - auto_expand: Whether to automatically expand the domain when needed (default: True).
         - verbose: Prints debug information if True (default: False).
         """
@@ -138,6 +145,7 @@ class CurledWakeWindfield(Windfield):
 
         self.clip_u = clip_u
         self.use_r4 = use_r4
+        self.sigma_diff_ic = sigma_diff_ic
         self.auto_expand = auto_expand
         self.zero_at_boundaries = zero_at_boundaries
         if zero_at_boundaries and not auto_expand:
@@ -870,6 +878,7 @@ class DefaultUModel(CurledUModel):
                 turbine.zt,
                 rotor,
                 smooth_fact=curl.smooth_fact,
+                sigma_diff=curl.sigma_diff_ic,
             )
             
         self.field[-1, ...] += delta_u
@@ -1504,6 +1513,29 @@ def check_state_bounds(state, thresh=1e-4, exclude_wall_points=False):
     return expand_y, expand_z
 
 
+def ali_lambda(xi: float | np.ndarray) -> float | np.ndarray:
+    """
+    Compute Lambda(xi) from Ali et al. (2024) JFM, Eq. (2.10).
+
+    Lambda measures how much the squared-deficit integral A2 = integral(r W^2 dr)
+    has been reduced as the disk-source profile diffuses with length scale sigma.
+
+    Parameters:
+    - xi: sigma / R_d, ratio of diffusion width to disk radius.
+
+    Returns:
+    - Lambda in [0, 2].
+      Limits: xi -> 0 (sharp top-hat, no diffusion) -> Lambda = 2;
+              xi -> inf (fully diffused to Gaussian) -> Lambda = 0.
+    """
+    xi = np.asarray(xi, dtype=float)
+    safe_xi = np.where(xi > 0, xi, 1.0)      # avoid 1/0; overridden at xi=0 below
+    inv_xi = 1.0 / safe_xi
+    inner = erf(inv_xi) - safe_xi / np.sqrt(np.pi) * (1.0 - np.exp(-inv_xi**2))
+    lam = 2.0 * inner**2
+    return np.where(xi <= 0, 2.0, lam)
+
+
 def ic_stencil(y, z, yt, zt, smooth_fact=0.1, r4=0.5, eff_yaw=0.0, yaw=0.0, tilt=0.0) -> np.ndarray:
     """
     Stencil using distance transform for smooth circular mask.
@@ -1540,25 +1572,51 @@ def ic_stencil(y, z, yt, zt, smooth_fact=0.1, r4=0.5, eff_yaw=0.0, yaw=0.0, tilt
 
 
 def ic_stencil_corrected(
-        y, z, yt, zt, rotor, smooth_fact=0.1, max_iter=10, tol=1e-3
+        y, z, yt, zt, rotor, smooth_fact=0.1, sigma_diff=0.0, max_iter=10, tol=1e-3
 ):
     """
     Iterate to compute the corrected wake width r4 which conserves mass
     and momentum (momentum deficit integral) for arbitrary rotor and smooth_fact.
 
     Typically converges in 3-4 iterations.
+
+    Parameters:
+    - y, z: 1D coordinate arrays.
+    - yt, zt: turbine center coordinates.
+    - rotor: RotorSolution with fields REWS, u4, Ct, yaw, tilt, extra.
+    - smooth_fact: smoothing factor for ic_stencil (non-dim, units of D).
+    - sigma_diff: near-wake diffusion length scale sigma_diff(x0), non-dim (units of D).
+        When > 0, applies the Ali et al. (2024) correction so that the momentum deficit
+        integral equals -T/rho at x0 (after near-wake diffusion) rather than at x=0.
+        Default 0.0 preserves original behavior (target M(0) = -T/rho).
+    - max_iter, tol: Newton iteration controls.
     """
     guess_r = 0.5  #  * np.sqrt((1 - rotor.an) / rotor.u4)  # inital guess for IC radius
     eff_yaw = calc_eff_yaw(rotor.yaw, rotor.tilt)
+    du_amp = rotor.REWS - rotor.u4  # positive deficit amplitude
+    thrust_x = -rotor.Ct * np.pi / 8 * np.cos(rotor.yaw)  # -T / (rho * pi), target at x0
     for _ in range(max_iter):
         shape = ic_stencil(
             y, z, yt, zt, smooth_fact, guess_r, eff_yaw=eff_yaw, yaw=rotor.yaw, tilt=rotor.tilt
-        ) 
+        )
         du = shape * (rotor.u4 - rotor.REWS)
-        integrand = (rotor.REWS + du) * du #+ rotor.extra.dp * rotor.REWS**2 * shape
+        integrand = (rotor.REWS + du) * du
         int_mom_def = np.trapz(np.trapz(integrand, z), y)
-        thrust_x = -rotor.Ct * np.pi / 8 * np.cos(rotor.yaw)
-        err = np.abs(int_mom_def - thrust_x) / np.abs(int_mom_def)
+
+        # Ali et al. (2024) correction: adjust target so M(x0) = -T/rho instead of M(0) = -T/rho.
+        # The near-wake diffusion (sigma_diff) causes |M| to grow from x=0 to x0.
+        # Ali Eq. (2.10): Lambda(xi) encodes how much A2 = integral(r W^2 dr) shrinks with diffusion.
+        # M(x0) / M(0) = (REWS - du_amp * Lambda(sigma_0/r4) / 2) / (REWS - du_amp)
+        # so: target at x=0 = thrust_x * (REWS - du_amp) / (REWS - du_amp * Lambda(sigma_0/r4) / 2)
+        if sigma_diff > 0:
+            sigma_0 = np.sqrt(smooth_fact**2 + sigma_diff**2)
+            lam = ali_lambda(sigma_0 / guess_r)
+            ali_factor = (rotor.REWS - du_amp) / (rotor.REWS - du_amp * lam / 2)
+            target = thrust_x * ali_factor
+        else:
+            target = thrust_x  # original behavior
+
+        err = np.abs(int_mom_def - target) / np.abs(int_mom_def)
         if err < tol:
             break
         if _ == max_iter - 1:
@@ -1566,7 +1624,7 @@ def ic_stencil_corrected(
                 f"ic_stencil_corrected did not converge in {max_iter} iterations, final error {err:.4e}"
             )
 
-        r4_new = guess_r * np.sqrt(thrust_x / int_mom_def)
+        r4_new = guess_r * np.sqrt(target / int_mom_def)
         guess_r = r4_new
     # print(f"DEBUG: r4 converged to {guess_r:.4f} in {_+1} iterations with final error {err:.4e}")
     return du
