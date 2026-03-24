@@ -1593,8 +1593,8 @@ def ic_stencil_corrected(
     """
     guess_r = 0.5  #  * np.sqrt((1 - rotor.an) / rotor.u4)  # inital guess for IC radius
     eff_yaw = calc_eff_yaw(rotor.yaw, rotor.tilt)
-    du_amp = rotor.REWS - rotor.u4  # positive deficit amplitude
-    thrust_x = -rotor.Ct * np.pi / 8 * np.cos(rotor.yaw)  # -T / (rho * pi), target at x0
+    du_mag = rotor.REWS - rotor.u4  # positive deficit magnitude
+    thrust_x = -rotor.Ct * np.pi / 8 * np.cos(eff_yaw)  # -T / rho, target at x0
     for _ in range(max_iter):
         shape = ic_stencil(
             y, z, yt, zt, smooth_fact, guess_r, eff_yaw=eff_yaw, yaw=rotor.yaw, tilt=rotor.tilt
@@ -1606,13 +1606,12 @@ def ic_stencil_corrected(
         # Ali et al. (2024) correction: adjust target so M(x0) = -T/rho instead of M(0) = -T/rho.
         # The near-wake diffusion (sigma_diff) causes |M| to grow from x=0 to x0.
         # Ali Eq. (2.10): Lambda(xi) encodes how much A2 = integral(r W^2 dr) shrinks with diffusion.
-        # M(x0) / M(0) = (REWS - du_amp * Lambda(sigma_0/r4) / 2) / (REWS - du_amp)
-        # so: target at x=0 = thrust_x * (REWS - du_amp) / (REWS - du_amp * Lambda(sigma_0/r4) / 2)
+        # M(x0) / M(0) = (REWS - du_mag * Lambda(sigma_0/r4) / 2) / (REWS - du_mag)
+        # so: target at x=0 = thrust_x * (REWS - du_mag) / (REWS - du_mag * Lambda(sigma_0/r4) / 2)
         if sigma_diff > 0:
-            # sigma_0 = np.sqrt(smooth_fact**2 + sigma_diff**2)
             lam = ali_lambda(sigma_diff / guess_r)
             lam_0 = ali_lambda(smooth_fact / guess_r)
-            ali_factor = (rotor.REWS - du_amp * lam_0 / 2) / (rotor.REWS - du_amp * lam / 2)
+            ali_factor = (rotor.REWS - du_mag * lam_0 / 2) / (rotor.REWS - du_mag * lam / 2)
             target = thrust_x * ali_factor
         else:
             target = thrust_x  # original behavior
@@ -1627,7 +1626,6 @@ def ic_stencil_corrected(
 
         r4_new = guess_r * np.sqrt(target / int_mom_def)
         guess_r = r4_new
-    # print(f"DEBUG: r4 converged to {guess_r:.4f} in {_+1} iterations with final error {err:.4e}")
     return du
 
 
