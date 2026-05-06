@@ -252,7 +252,7 @@ class CurledWakeWindfield(Windfield):
         # rotate points into yaw-and-tilt frame
         _, y_i, z_i = eff_yaw_inv_rotation(np.zeros_like(r_i), np.zeros_like(r_i), r_i, eff_yaw, rotor.yaw, rotor.tilt)
         # NOTE: rotor.Ct differs from Shapiro et al. (2018) definition - includes cos^2(eff_yaw)
-        Gamma_0 = 0.5 * D * rotor.REWS * rotor.Ct * np.sin(eff_yaw)
+        Gamma_0 = 0.5 * D * rotor.REWS * rotor.extra.Ct * np.sin(eff_yaw)
         Gamma_i = (
             Gamma_0 * 4 * r_i / (self.N_vortex * D * np.sqrt(1 - (2 * r_i / D) ** 2))
         )
