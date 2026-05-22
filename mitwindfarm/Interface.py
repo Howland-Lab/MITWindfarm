@@ -4,7 +4,8 @@ import numpy as np
 
 from floris.core.wake_model import BaseWakeModel
 
-from mitwindfarm import Layout
+from .Windfield import PowerLaw
+from ._Layout import Layout
 
 @define
 class FlorisWakeModel(BaseWakeModel):
@@ -21,21 +22,32 @@ class FlorisWakeModel(BaseWakeModel):
     def _solve_and_evaluate(self, farm, flow_field, grid, turbine_grid):
         # Assume all turbines have the same rotor diameter; not sure if
         # methods below handle varying rotor diameters?
-        if not np.all(farm.rotor_diameters == farm.rotor_diameters[0]):
+        if not np.all(farm.rotor_diameters == farm.rotor_diameters.mean()):
             raise NotImplementedError("Varying rotor diameters not supported in FlorisWakeModel")
         else:
-            D = farm.rotor_diameters[0]
+            D = farm.rotor_diameters.mean()
 
         # Use sorted version
         for f in range(flow_field.n_findex):
             
             turbines_x = turbine_grid.x_sorted.mean(axis=(2,3))[f]
             turbines_y = turbine_grid.y_sorted.mean(axis=(2,3))[f]
-            layout = Layout(turbines_x/D, turbines_y/D)
-            # Extract quantities for this findex
-            wd = flow_field.wind_directions[f]
-            ws = flow_field.wind_speeds[f] # Single ws for now. Use u_initial_sorted.
-            ti = flow_field.turbulence_intensities[f]
+            turbines_z = turbine_grid.z_sorted.mean(axis=(2,3))[f]
+            layout = Layout(turbines_x/D, turbines_y/D, turbines_z/D)
+
+            # Reinstantiate the windfarm model
+            self.windfarm = self.windfarm.__class__(
+                rotor_model=self.windfarm.rotor_model, # TODO: Pass FLORIS-like wrapper here?
+                wake_model=self.windfarm.wake_model,
+                superposition=self.windfarm.superposition,
+                base_windfield=PowerLaw(
+                    flow_field.wind_speeds[f],
+                    flow_field.reference_wind_height/D,
+                    flow_field.wind_shear,
+                    flow_field.turbulence_intensities[f]
+                ),
+                TIamb=flow_field.turbulence_intensities[f], # Needed? not sure
+            )
 
             yaw = farm.yaw_angles[f, :]
             #tilt = farm.tilt_angles[f, :]
@@ -55,5 +67,8 @@ class FlorisWakeModel(BaseWakeModel):
             )
 
             # Assign to flow field
-            # (sorting may be an issue here. May need to reassign layout each time).
-            flow_field.u_sorted[f] = relative_velocities * ws
+            flow_field.u_sorted[f] = relative_velocities
+
+# TODO
+# Create Rotor-style wrapper for Floris operation_model so that that can be called instead?
+# How to pass tilt, etc in?
