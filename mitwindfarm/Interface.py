@@ -60,6 +60,9 @@ class FlorisCurledWindfarm(BaseWakeModel):
             power_thrust_table=farm.turbine_power_thrust_tables[turbine_type],
             air_density=flow_field.air_density,
             tilt_interp=farm.turbine_tilt_interps[turbine_type],
+            average_method=turbine_grid.average_method,
+            cubature_weights=grid.cubature_weights,
+            correct_cp_ct_for_tilt=True
         )
 
         # Use sorted version
@@ -84,7 +87,7 @@ class FlorisCurledWindfarm(BaseWakeModel):
                 "solver_kwargs": self.solver_kwargs,
             }
             yaw = farm.yaw_angles[f, :]
-            tilt = np.zeros_like(yaw) # Temporary
+            tilt = farm.tilt_angles[f, :]
             CTprime = 2.0 * np.ones_like(yaw) # Temporary
             setpoints = list(zip(CTprime, yaw, tilt))
 
@@ -101,15 +104,15 @@ class FlorisCurledWindfarm(BaseWakeModel):
             flow_field.u_sorted[f] = relative_velocities
 
 # TODO
-# Create Rotor-style wrapper for Floris operation_model so that that can be called instead?
 # Create base_windfield directly from flow_field?
-# How to pass tilt, etc in?
 
 class RotorWrapper(Rotor):
     """
     Wrapper for the FLORIS operation model to be used as a rotor model in MITWindfarm. 
     This allows the use of the FLORIS operation model within the CurledWindfarm solver, which is necessary for the FlorisCurledWindfarm wake model to work.
     """
+
+    # TODO: Handle multidimensional turbine conditions; how much can I take from turbine.py?
 
     def __init__(self,
         thrust_coefficient_function,
@@ -199,6 +202,11 @@ class RotorWrapper(Rotor):
         v4 = - (1/4) * Ct * np.sin(np.deg2rad(yaw)) * Us
         w4 = np.zeros_like(Us) # TODO: What is w4?
 
+        # Compute tilt for rotor solution.
+        if self.correct_cp_ct_for_tilt and self.tilt_interp is not None:
+            tilt = self.tilt_interp(Us)
+        relative_tilt = tilt - self.power_thrust_table["ref_tilt"]
+
         class extra:
             def __init__(self, an, u4, REWS):
                 self.an = an / REWS
@@ -213,7 +221,7 @@ class RotorWrapper(Rotor):
             u4=u4,
             v4=v4,
             REWS=REWS, # Should be ok to compute this.
-            tilt=tilt,
+            tilt=np.deg2rad(relative_tilt), # Correct? Or should this be absolute tilt?
             w4=w4,
             TI=RETI,
             extra=extra(a, u4, REWS), # Model needs normalized u4, axial induction
