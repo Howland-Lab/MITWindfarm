@@ -6,12 +6,13 @@ from floris.core.wake_model import BaseWakeModel
 
 from .Windfield import PowerLaw
 from ._Layout import Layout
-from .windfarm import Windfarm, CosineWindfarm, CurledWindfarm
+from .windfarm import CurledWindfarm
+from .Rotor import UnifiedAD_TI, Rotor, RotorSolution
 
 @define
-class FlorisWakeModel(BaseWakeModel):
+class FlorisCurledWindfarm(BaseWakeModel):
     # Parameters (to fill in)
-    windfarm = field(default=None)
+    solver_kwargs = field(default=None)
 
     # TODO: Can I declare this directly with attrs?
     # Interestingly, this doesn't work, something to do with BaseLibrary
@@ -31,6 +32,9 @@ class FlorisWakeModel(BaseWakeModel):
     # These other models will need to somehow pass pitch and tsr to the wake
     # model, right?
 
+    # Check that rotor_model is the default value (AD); if not, raise a warning. Either way, 
+    # ignore and use the wrapper for the FLORIS operation model.
+
 
     def turbine_solve(self, farm, flow_field, grid):
         self._solve_and_evaluate(farm, flow_field, grid, grid)
@@ -47,6 +51,17 @@ class FlorisWakeModel(BaseWakeModel):
         else:
             D = farm.rotor_diameters.mean()
 
+        # TODO: Check also for consistent turbine types; valid control arguments, etc
+        turbine_type = farm.turbine_type[0]
+        rotor_model = RotorWrapper(
+            thrust_coefficient_function=farm.turbine_thrust_coefficient_functions[turbine_type], #
+            power_function=farm.turbine_power_functions[turbine_type],
+            axial_induction_function=farm.turbine_axial_induction_functions[turbine_type],
+            power_thrust_table=farm.turbine_power_thrust_tables[turbine_type],
+            air_density=flow_field.air_density,
+            tilt_interp=farm.turbine_tilt_interps[turbine_type],
+        )
+
         # Use sorted version
         for f in range(flow_field.n_findex):
             
@@ -58,7 +73,7 @@ class FlorisWakeModel(BaseWakeModel):
             # Generate calling arguments based on windfarm type. Also depends on rotor model; not yet handled.
             # Sometimes, setpoints should include tsr and pitch; other times, ctprime? Depends on rotor model?
             wf_init_kwargs = {
-                "rotor_model": self.windfarm.rotor_model, # TODO: Pass FLORIS-like wrapper here?
+                "rotor_model": rotor_model,
                 "base_windfield": PowerLaw( # TODO: Can we pass a more general wind field?
                     flow_field.wind_speeds[f],
                     flow_field.reference_wind_height/D,
@@ -66,7 +81,7 @@ class FlorisWakeModel(BaseWakeModel):
                     flow_field.turbulence_intensities[f]
                 ),
                 "TIamb": flow_field.turbulence_intensities[f], # Needed? not sure
-                "solver_kwargs": self.windfarm.solver_kwargs,
+                "solver_kwargs": self.solver_kwargs,
             }
             yaw = farm.yaw_angles[f, :]
             tilt = np.zeros_like(yaw) # Temporary
@@ -74,8 +89,8 @@ class FlorisWakeModel(BaseWakeModel):
             setpoints = list(zip(CTprime, yaw, tilt))
 
             # Reinstantiate and solve for the current findex
-            self.windfarm = self.windfarm.__class__(**wf_init_kwargs)
-            windfarm_sol = self.windfarm(layout, setpoints)
+            windfarm = CurledWindfarm(**wf_init_kwargs)
+            windfarm_sol = windfarm(layout, setpoints)
 
             # Extract the wind speeds at the turbine locations
             relative_velocities = windfarm_sol.windfield.wsp(
@@ -87,5 +102,120 @@ class FlorisWakeModel(BaseWakeModel):
 
 # TODO
 # Create Rotor-style wrapper for Floris operation_model so that that can be called instead?
+# Create base_windfield directly from flow_field?
 # How to pass tilt, etc in?
-# How to pass yaw angle?
+
+class RotorWrapper(Rotor):
+    """
+    Wrapper for the FLORIS operation model to be used as a rotor model in MITWindfarm. 
+    This allows the use of the FLORIS operation model within the CurledWindfarm solver, which is necessary for the FlorisCurledWindfarm wake model to work.
+    """
+
+    def __init__(self,
+        thrust_coefficient_function,
+        axial_induction_function,
+        power_function,
+        power_thrust_table,
+        air_density = 1.225,
+        tilt_interp = None,
+        average_method = "cubic-mean",
+        cubature_weights = None,
+        correct_cp_ct_for_tilt = True
+    ):
+        self.thrust_coefficient_function = thrust_coefficient_function
+        self.power_function = power_function
+        self.axial_induction_function = axial_induction_function
+        self.power_thrust_table = power_thrust_table
+        self.air_density = air_density
+        self.tilt_interp = tilt_interp
+        self.average_method = average_method
+        self.cubature_weights = cubature_weights
+        self.correct_cp_ct_for_tilt = correct_cp_ct_for_tilt
+
+    def __call__(
+        self, x: float, y: float, z: float, windfield, Ctprime, yaw=0, tilt=0,
+    ):
+        # TODO: Do I need to account for yaw, tilt? Seems likely not.
+        xs_glob = x
+        ys_glob = y
+        zs_glob = z
+        Us = windfield.wsp(xs_glob, ys_glob, zs_glob)
+        TIs = windfield.TI(xs_glob, ys_glob, zs_glob)
+
+        # Now, should be able to evaluate the FLORIS operation model (thrust coefficient)?
+        Ct = self.thrust_coefficient_function(
+            power_thrust_table=self.power_thrust_table,
+            velocities=Us,
+            turbulence_intensities=TIs,
+            air_density=self.air_density,
+            yaw_angles=yaw,
+            tilt_angles=tilt,
+            power_setpoints=None, # Figure out how to raise warning if nondefault
+            awc_modes=None,
+            awc_amplitudes=None,
+            tilt_interp=self.tilt_interp,
+            average_method=self.average_method,
+            cubature_weights=self.cubature_weights,
+            correct_cp_ct_for_tilt=self.correct_cp_ct_for_tilt,
+        )
+
+        a = self.axial_induction_function(
+            power_thrust_table=self.power_thrust_table,
+            velocities=Us,
+            turbulence_intensities=TIs,
+            air_density=self.air_density,
+            yaw_angles=yaw,
+            tilt_angles=tilt,
+            power_setpoints=None, # Figure out how to raise warning if nondefault
+            awc_modes=None,
+            awc_amplitudes=None,
+            tilt_interp=self.tilt_interp,
+            average_method=self.average_method,
+            cubature_weights=self.cubature_weights,
+            correct_cp_ct_for_tilt=self.correct_cp_ct_for_tilt,
+        )
+
+        P = self.power_function(
+            power_thrust_table=self.power_thrust_table,
+            velocities=Us,
+            turbulence_intensities=TIs,
+            air_density=self.air_density,
+            yaw_angles=yaw,
+            tilt_angles=tilt,
+            power_setpoints=None, # Figure out how to raise warning if nondefault
+            awc_modes=None,
+            awc_amplitudes=None,
+            tilt_interp=self.tilt_interp,
+            average_method=self.average_method,
+            cubature_weights=self.cubature_weights,
+            correct_cp_ct_for_tilt=self.correct_cp_ct_for_tilt,
+        )
+
+        # TEMPORARY; Based on my basic understanding; may need updating
+        REWS = np.mean(Us)
+        RETI = np.mean(TIs)
+        Ctprime = 4*a/(1-a)
+        u4 = np.sqrt(np.maximum(1 - Ct, 0)) * Us # TODO: What is u4?
+        v4 = - (1/4) * Ct * np.sin(np.deg2rad(yaw)) * Us
+        w4 = np.zeros_like(Us) # TODO: What is w4?
+
+        class extra:
+            def __init__(self, an, u4, REWS):
+                self.an = an / REWS
+                self.u4 = u4 / REWS
+
+        rotor_solution = RotorSolution(
+            yaw=np.deg2rad(yaw),
+            Cp=P, # May not be needed
+            Ct=Ct * REWS**2,
+            Ctprime=Ctprime, # Check if computation valid
+            an=a * REWS, # Axial induction (why multiply by REWS?)
+            u4=u4,
+            v4=v4,
+            REWS=REWS, # Should be ok to compute this.
+            tilt=tilt,
+            w4=w4,
+            TI=RETI,
+            extra=extra(a, u4, REWS), # Model needs normalized u4, axial induction
+        )
+        return rotor_solution

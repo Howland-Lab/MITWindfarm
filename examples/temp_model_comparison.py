@@ -14,7 +14,7 @@ from mitwindfarm import (
 )
 from mitwindfarm.Rotor import UnifiedAD_TI
 from mitwindfarm.windfarm import CurledWindfarm
-from mitwindfarm import FlorisWakeModel
+from mitwindfarm import FlorisCurledWindfarm
 
 # Set up MITWindfarm solver and run standalone as a baseline
 
@@ -36,16 +36,18 @@ TI = 0.06
 U = 8.0
 layout = Layout([0, 12 / 2, 24 / 2], [0, 0, 0], [0, 0, 0])
 
+solver_kwargs = dict(
+    dy=1 / 10,
+    dz=1 / 10,
+    integrator="scipy_rk23",  # see mitwindfarm.utils.integrate
+    k_model="k-l",  # alternatives: "const", "2021"
+    verbose=False,
+)
+
 windfarm = CurledWindfarm(
     rotor_model=UnifiedAD_TI(),
     base_windfield=PowerLaw(Uref=8.0, zref=H, exp=wind_shear, TIamb=TI),
-    solver_kwargs=dict(
-        dy=1 / 10,
-        dz=1 / 10,
-        integrator="scipy_rk23",  # see mitwindfarm.utils.integrate
-        k_model="k-l",  # alternatives: "const", "2021"
-        verbose=False,
-    ),
+    solver_kwargs=solver_kwargs,
     TIamb=TI,
 )
 
@@ -65,12 +67,12 @@ fmodel.set(
     wind_speeds=[U, U],
     wind_directions=[270.0, 270.0 + rotation_angle], 
     turbulence_intensities=[TI, TI],
-    turbine_type=["IEA_15MW"]*len(layout.x),
+    turbine_type=["iea_15MW"]*len(layout.x),
     reference_wind_height=H, # IEA 15MW hub height
     wind_shear=wind_shear,
 )
 # Assign MITWindfarm wake model
-fmodel.set_wake_model(FlorisWakeModel(windfarm=windfarm))
+fmodel.set_wake_model(FlorisCurledWindfarm(solver_kwargs=solver_kwargs))
 # Run FLORIS using MITWindfarm wake model/solver
 fmodel.run()
 
