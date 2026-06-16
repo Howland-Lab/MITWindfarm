@@ -13,6 +13,25 @@ class FlorisWakeModel(BaseWakeModel):
     # Parameters (to fill in)
     windfarm = field(default=None)
 
+    # TODO: Can I declare this directly with attrs?
+    # Interestingly, this doesn't work, something to do with BaseLibrary
+    # I think. Will need to work through that.
+    # def __attrs_post_init__(self):
+    #     supported_models = [CurledWindfarm]
+    #     if type(self.windfarm) not in supported_models:
+    #         raise NotImplementedError(
+    #             "The FLORIS interface for MITWindfarm does not support type ",
+    #             type(self.wndfarm),
+    #             ". Supported types:",
+    #             supported_models
+    #         )
+    # TODO: Check a ThrustBased or BEM model here; not a UMM model?
+    # should take pitch and TSR as inputs, I think, or will need to figure
+    # that out?
+    # These other models will need to somehow pass pitch and tsr to the wake
+    # model, right?
+
+
     def turbine_solve(self, farm, flow_field, grid):
         self._solve_and_evaluate(farm, flow_field, grid, grid)
 
@@ -38,51 +57,24 @@ class FlorisWakeModel(BaseWakeModel):
 
             # Generate calling arguments based on windfarm type. Also depends on rotor model; not yet handled.
             # Sometimes, setpoints should include tsr and pitch; other times, ctprime? Depends on rotor model?
-            if type(self.windfarm) is Windfarm:
-                init_kwargs = {
-                    "rotor_model": self.windfarm.rotor_model, # TODO: Pass FLORIS-like wrapper here?
-                    "wake_model": self.windfarm.wake_model,
-                    "superposition": self.windfarm.superposition,
-                    "base_windfield": PowerLaw( # TODO: Can we pass a more general wind field?
-                        flow_field.wind_speeds[f],
-                        flow_field.reference_wind_height/D,
-                        flow_field.wind_shear,
-                        flow_field.turbulence_intensities[f]
-                    ),
-                    "TIamb": flow_field.turbulence_intensities[f], # Needed? not sure
-                }
-
-                yaw = farm.yaw_angles[f, :]
-                #tilt = farm.tilt_angles[f, :]
-                tilt = np.zeros_like(yaw) # Temporary
-                pitch = 0.0 * np.ones_like(yaw)
-                tsr = 7.0 * np.ones_like(yaw)
-                setpoints = list(zip(pitch, tsr, yaw, tilt))
-            elif type(self.windfarm) is CosineWindfarm:
-                setpoints = list(yaw)
-                raise NotImplementedError(
-                    "CosineWindfarm has not yet been tested with FlorisWakeModel;"
-                    " may need custom setpoint formatting"
-                )
-            elif type(self.windfarm) is CurledWindfarm:
-                init_kwargs = {
-                    "rotor_model": self.windfarm.rotor_model, # TODO: Pass FLORIS-like wrapper here?
-                    "base_windfield": PowerLaw( # TODO: Can we pass a more general wind field?
-                        flow_field.wind_speeds[f],
-                        flow_field.reference_wind_height/D,
-                        flow_field.wind_shear,
-                        flow_field.turbulence_intensities[f]
-                    ),
-                    "TIamb": flow_field.turbulence_intensities[f], # Needed? not sure
-                    "solver_kwargs": self.windfarm.solver_kwargs,
-                }
-                yaw = farm.yaw_angles[f, :]
-                tilt = np.zeros_like(yaw) # Temporary
-                CTprime = 2.0 * np.ones_like(yaw) # Temporary
-                setpoints = list(zip(CTprime, yaw, tilt))
+            wf_init_kwargs = {
+                "rotor_model": self.windfarm.rotor_model, # TODO: Pass FLORIS-like wrapper here?
+                "base_windfield": PowerLaw( # TODO: Can we pass a more general wind field?
+                    flow_field.wind_speeds[f],
+                    flow_field.reference_wind_height/D,
+                    flow_field.wind_shear,
+                    flow_field.turbulence_intensities[f]
+                ),
+                "TIamb": flow_field.turbulence_intensities[f], # Needed? not sure
+                "solver_kwargs": self.windfarm.solver_kwargs,
+            }
+            yaw = farm.yaw_angles[f, :]
+            tilt = np.zeros_like(yaw) # Temporary
+            CTprime = 2.0 * np.ones_like(yaw) # Temporary
+            setpoints = list(zip(CTprime, yaw, tilt))
 
             # Reinstantiate and solve for the current findex
-            self.windfarm = self.windfarm.__class__(**init_kwargs)
+            self.windfarm = self.windfarm.__class__(**wf_init_kwargs)
             windfarm_sol = self.windfarm(layout, setpoints)
 
             # Extract the wind speeds at the turbine locations
