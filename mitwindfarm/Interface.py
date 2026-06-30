@@ -27,28 +27,6 @@ class FlorisCurledWindfarm(BaseWakeModel):
     # Parameters (to fill in)
     solver_kwargs = field(default=None)
 
-    # TODO: Can I declare this directly with attrs?
-    # Interestingly, this doesn't work, something to do with BaseLibrary
-    # I think. Will need to work through that.
-    # def __attrs_post_init__(self):
-    #     supported_models = [CurledWindfarm]
-    #     if type(self.windfarm) not in supported_models:
-    #         raise NotImplementedError(
-    #             "The FLORIS interface for MITWindfarm does not support type ",
-    #             type(self.wndfarm),
-    #             ". Supported types:",
-    #             supported_models
-    #         )
-    # TODO: Check a ThrustBased or BEM model here; not a UMM model?
-    # should take pitch and TSR as inputs, I think, or will need to figure
-    # that out?
-    # These other models will need to somehow pass pitch and tsr to the wake
-    # model, right?
-
-    # Check that rotor_model is the default value (AD); if not, raise a warning. Either way, 
-    # ignore and use the wrapper for the FLORIS operation model.
-
-
     def turbine_solve(self, farm, flow_field, grid):
         self._solve_and_evaluate(farm, flow_field, grid, grid)
 
@@ -139,8 +117,6 @@ class RotorWrapper(Rotor):
     necessary for the FlorisCurledWindfarm wake model to work.
     """
 
-    # TODO: Handle multidimensional turbine conditions; how much can I take from turbine.py?
-
     def __init__(self,
         thrust_coefficient_function,
         axial_induction_function,
@@ -197,12 +173,8 @@ class RotorWrapper(Rotor):
     def __call__(
         self, x: float, y: float, z: float, windfield, Ctprime, yaw=0, tilt=0,
     ):
-        # TODO: Do I need to account for yaw, tilt? Seems likely not.
-        xs_glob = x
-        ys_glob = y
-        zs_glob = z
-        Us = windfield.wsp(xs_glob, ys_glob, zs_glob)
-        TIs = windfield.TI(xs_glob, ys_glob, zs_glob)
+        Us = windfield.wsp(x, y, z)
+        TIs = windfield.TI(x, y, z)
 
         if self.multidimensional_turbine and self.multidim_condition is None:
             raise ValueError(
@@ -263,9 +235,12 @@ class RotorWrapper(Rotor):
         REWS = np.mean(Us)
         RETI = np.mean(TIs)
         Ctprime = 4*a/(1-a)
-        u4 = np.sqrt(np.maximum(1 - Ct, 0)) * Us # TODO: What is u4?
+        u4 = np.sqrt(np.maximum(1 - Ct, 0)) * Us
         v4 = - (1/4) * Ct * np.sin(np.deg2rad(yaw)) * Us
-        w4 = np.zeros_like(Us) # TODO: What is w4?
+        # Or should these use 2.20a,b from Heck et al (2023)?
+        # u4 = (4 - Ctprime*np.cos(np.deg2rad(yaw))**2) / (4 + Ctprime*np.cos(np.deg2rad(yaw))**2) * Us
+        # v4 = - (4 * Ctprime * np.sin(np.deg2rad(yaw))*np.cos(np.deg2rad(yaw))**2) / (4 + Ctprime*np.cos(np.deg2rad(yaw))**2)**2 * Us
+        w4 = np.zeros_like(Us)
 
         # Compute tilt for rotor solution.
         if self.correct_cp_ct_for_tilt and self.tilt_interp is not None:
@@ -276,28 +251,23 @@ class RotorWrapper(Rotor):
             """
             Small class to return normalized values for axial induction and u4.
             """
-            def __init__(self, an, u4, REWS):
-                self.an = an / REWS
+            def __init__(self, a, u4, REWS):
+                self.an = a
                 self.u4 = u4 / REWS
 
         ### MIT team to check: are these the correct values to pass to the RotorSolution object?
         rotor_solution = RotorSolution(
             yaw=np.deg2rad(yaw),
-            Cp=P, # May not be needed
-            Ct=Ct * REWS**2,
-            Ctprime=Ctprime, # Check if computation valid
-            an=a * REWS, # Axial induction (why multiply by REWS?)
+            Cp=P, # Needed to save off power in main FlorisCurledWindfarm solve
+            Ct=Ct * REWS**2, # What is this?
+            Ctprime=Ctprime,
+            an=a * REWS, # Why multiply by REWS?
             u4=u4,
             v4=v4,
             REWS=REWS,
             tilt=np.deg2rad(relative_tilt), # Correct? Or should this be absolute tilt?
             w4=w4,
             TI=RETI,
-            extra=extra(a, u4, REWS), # Model needs normalized u4, axial induction
+            extra=extra(a, u4, REWS),
         )
         return rotor_solution
-
-# TODO:
-# - multidimensional turbine conditions
-# - X Non power law base wind field (can I construct from FLORIS flow_field?) DOES NOT WORK; internal solver expects PowerLaw (z only).
-# - Check accounting for yaw ang tilt in the xs_glob, ys_glob, zs_glob calculation.
