@@ -11,7 +11,6 @@ from .Windfield import PowerLaw
 from ._Layout import Layout
 from .windfarm import CurledWindfarm
 from .Rotor import Rotor, RotorSolution
-from .Windfield import Windfield
 
 @define
 class FlorisCurledWindfarm(BaseWakeModel):
@@ -68,6 +67,11 @@ class FlorisCurledWindfarm(BaseWakeModel):
             D = farm.rotor_diameters.mean()
             turbine_type = farm.turbine_type[0]
 
+        if flow_field.het_map or flow_field.heterogeneous_inflow_config:
+            raise NotImplementedError(
+                "Heterogeneous inflows are not supported in FlorisCurledWindfarm."
+            )
+
         rotor_model = RotorWrapper(
             thrust_coefficient_function=farm.turbine_thrust_coefficient_functions[turbine_type], #
             power_function=farm.turbine_power_functions[turbine_type],
@@ -92,19 +96,12 @@ class FlorisCurledWindfarm(BaseWakeModel):
             # Sometimes, setpoints should include tsr and pitch; other times, ctprime? Depends on rotor model?
             wf_init_kwargs = {
                 "rotor_model": rotor_model,
-                "base_windfield": PowerLaw( # TODO: Can we pass a more general wind field?
+                "base_windfield": PowerLaw(
                     flow_field.wind_speeds[f],
                     flow_field.reference_wind_height/D,
                     flow_field.wind_shear,
                     flow_field.turbulence_intensities[f]
                 ),
-                # "base_windfield": WindfieldWrapper(
-                #     u=flow_field.u_sorted[f],
-                #     x=turbine_grid.x_sorted[f]/D,
-                #     y=turbine_grid.y_sorted[f]/D,
-                #     z=turbine_grid.z_sorted[f]/D,
-                #     TIamb=flow_field.turbulence_intensities[f]
-                # ),
                 "TIamb": flow_field.turbulence_intensities[f], # Needed? not sure
                 "solver_kwargs": self.solver_kwargs,
             }
@@ -124,9 +121,6 @@ class FlorisCurledWindfarm(BaseWakeModel):
 
             # Assign to flow field
             flow_field.u_sorted[f] = relative_velocities
-
-# TODO
-# Create base_windfield directly from flow_field?
 
 class RotorWrapper(Rotor):
     """
@@ -255,72 +249,7 @@ class RotorWrapper(Rotor):
         )
         return rotor_solution
 
-class WindfieldWrapper(Windfield):
-    """
-    Defines the base wind speed at x, y, z locations based on the FLORIS flow field and grid.
-    """
-    def __init__(self, u, x, y, z, TIamb = 0.0):
-        self.u_grid = u
-        self.x_grid = x
-        self.y_grid = y
-        self.z_grid = z
-
-        self._interp_func = LinearNDInterpolator(
-            np.vstack((self.x_grid.ravel(), self.y_grid.ravel(), self.z_grid.ravel())).T,
-            self.u_grid.ravel(),
-            # bounds_error=False,
-            # fill_value=None
-        )
-        self.TIamb = TIamb
-    
-    def wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
-        """
-        Returns the wind speed at the specified x, y, z coordinates based on the FLORIS flow field.
-
-        Parameters:
-        - x: query x-coordinate (normalized by rotor diameter).
-        - y: query y-coordinate (normalized by rotor diameter).
-        - z: query z-coordinate (normalized by rotor diameter).
-
-        Returns:
-        float: Wind speed at the specified coordinates.
-        """
-
-        # Grid interpolation to get the wind speed at the specified coordinates.
-        import ipdb; ipdb.set_trace()
-        query_points = np.vstack((np.array(x).ravel(), np.array(y).ravel(), np.array(z).ravel())).T
-        values = self._interp_func(query_points)
-        return values.reshape(np.shape(np.array(x)))
-
-    def TI(self, x: float, y: float, z: float) -> float:
-        """
-        Returns the ambient turbulence intensity in the shape of the query coordinates.
-
-        Parameters:
-        - x: query x-coordinate (normalized by rotor diameter).
-        - y: query y-coordinate (normalized by rotor diameter).
-        - z: query z-coordinate (normalized by rotor diameter).
-
-        Returns:
-        float: Turbulence intensity at the specified coordinates.
-        """
-        return self.TIamb * np.ones_like(x)
-
-    def wdir(self, x: float, y: float, z: float) -> float:
-        """
-        Returns rotated wind direction (zeros in the shape of the query coordinates).
-
-        Parameters:
-        - x: query x-coordinate (normalized by rotor diameter).
-        - y: query y-coordinate (normalized by rotor diameter).
-        - z: query z-coordinate (normalized by rotor diameter).
-
-        Returns:
-        float: Wind direction at the specified coordinates.
-        """
-        return np.zeros_like(x)
-
 # TODO:
 # - multidimensional turbine conditions
-# - Non power law base wind field (can I construct from FLORIS flow_field?)
+# - X Non power law base wind field (can I construct from FLORIS flow_field?) DOES NOT WORK; internal solver expects PowerLaw (z only).
 # - Check accounting for yaw ang tilt in the xs_glob, ys_glob, zs_glob calculation.
