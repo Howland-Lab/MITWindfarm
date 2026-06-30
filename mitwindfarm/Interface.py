@@ -1,11 +1,13 @@
 from dataclasses import dataclass
 from attrs import define, field
 
+import copy
 import numpy as np
 from numpy.typing import ArrayLike
 from scipy.interpolate import LinearNDInterpolator
 
 from floris.core.wake_model import BaseWakeModel
+from floris.core.turbine.turbine import select_multidim_condition
 
 from .Windfield import PowerLaw
 from ._Layout import Layout
@@ -65,7 +67,7 @@ class FlorisCurledWindfarm(BaseWakeModel):
             )
         else:
             D = farm.rotor_diameters.mean()
-            turbine_type = farm.turbine_type[0]
+            turbine_type = farm.turbine_definitions[0]['turbine_type']
 
         if flow_field.het_map or flow_field.heterogeneous_inflow_config:
             raise NotImplementedError(
@@ -84,9 +86,15 @@ class FlorisCurledWindfarm(BaseWakeModel):
             correct_cp_ct_for_tilt=True
         )
 
+        farm.turbine_powers = np.zeros((flow_field.n_findex, farm.n_turbines))
+
         # Use sorted version
         for f in range(flow_field.n_findex):
-            
+
+            # Handle possible multidimensional turbine conditions
+            if flow_field.multidim_conditions is not None:
+                rotor_model.set_multidim_condition(flow_field.multidim_conditions, f)
+
             turbines_x = turbine_grid.x_sorted.mean(axis=(2,3))[f]
             turbines_y = turbine_grid.y_sorted.mean(axis=(2,3))[f]
             turbines_z = turbine_grid.z_sorted.mean(axis=(2,3))[f]
@@ -114,6 +122,8 @@ class FlorisCurledWindfarm(BaseWakeModel):
             windfarm = CurledWindfarm(**wf_init_kwargs)
             windfarm_sol = windfarm(layout, setpoints)
 
+            farm.turbine_powers[f] = np.array([r.Cp for r in windfarm_sol.rotors])
+
             # Extract the wind speeds at the turbine locations
             relative_velocities = windfarm_sol.windfield.wsp(
                 grid.x_sorted[f]/D, grid.y_sorted[f]/D, grid.z_sorted[f]/D
@@ -140,7 +150,7 @@ class RotorWrapper(Rotor):
         tilt_interp = None,
         average_method = "cubic-mean",
         cubature_weights = None,
-        correct_cp_ct_for_tilt = True
+        correct_cp_ct_for_tilt = True,
     ):
         self.thrust_coefficient_function = thrust_coefficient_function
         self.power_function = power_function
@@ -152,6 +162,38 @@ class RotorWrapper(Rotor):
         self.cubature_weights = cubature_weights
         self.correct_cp_ct_for_tilt = correct_cp_ct_for_tilt
 
+        if "condition_keys" in power_thrust_table:
+            self._power_thrust_table_md = copy.deepcopy(power_thrust_table)
+            self.multidimensional_turbine = True
+        else:
+            self.multidimensional_turbine = False
+        self.multidim_condition = None
+
+    def set_multidim_condition(self, multidim_conditions, findex):
+        """
+        Select the power, thrust curves to evaluate. Only used if multidimensional turbines are used.
+        """
+        if self.multidimensional_turbine:
+            pass
+        else:
+            raise ValueError(
+                "Attempting to set a multidimensional condition for a turbine that does not have a multidimensional power/thrust table."
+            )
+        
+        # Get findex position, if necessary
+        for k, v in multidim_conditions.items():
+            if isinstance(v, (list, np.ndarray)):
+                multidim_conditions[k] = v[findex]
+
+        # Handle multidimensional turbine conditions.
+        self.multidim_condition = tuple(select_multidim_condition(
+            multidim_conditions,
+            [k for k in self._power_thrust_table_md.keys() if k != "condition_keys"],
+             self._power_thrust_table_md["condition_keys"],
+            1
+        )[0][0])
+        self.power_thrust_table = self._power_thrust_table_md[self.multidim_condition]
+
     def __call__(
         self, x: float, y: float, z: float, windfield, Ctprime, yaw=0, tilt=0,
     ):
@@ -161,6 +203,12 @@ class RotorWrapper(Rotor):
         zs_glob = z
         Us = windfield.wsp(xs_glob, ys_glob, zs_glob)
         TIs = windfield.TI(xs_glob, ys_glob, zs_glob)
+
+        if self.multidimensional_turbine and self.multidim_condition is None:
+            raise ValueError(
+                "A multidimensional turbine is being used, "
+                "but multidimensional condition has not been set."
+            )
 
         # Now, should be able to evaluate the FLORIS operation model (thrust coefficient)?
         Ct = self.thrust_coefficient_function(
@@ -241,7 +289,7 @@ class RotorWrapper(Rotor):
             an=a * REWS, # Axial induction (why multiply by REWS?)
             u4=u4,
             v4=v4,
-            REWS=REWS, # Should be ok to compute this.
+            REWS=REWS,
             tilt=np.deg2rad(relative_tilt), # Correct? Or should this be absolute tilt?
             w4=w4,
             TI=RETI,

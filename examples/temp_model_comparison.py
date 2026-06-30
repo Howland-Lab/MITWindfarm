@@ -24,9 +24,12 @@ cmap_floris = "pink"
 rotation_angle = -5
 
 setpoints = [ # Ct-prime, yaw, tilt
-    (2, 0, 0),
-    (2, 0, 0),
-    (2, 0, 0),
+    # (2, 0, 0),
+    # (2, 0, 0),
+    # (2, 0, 0),
+    (2, 0, 0.017), # ~1 degree of tilt
+    (2, 0, 0.017),
+    (2, 0, 0.017),
 ]
 
 D = 242.24
@@ -67,7 +70,9 @@ fmodel.set(
     wind_speeds=[U, U],
     wind_directions=[270.0, 270.0 + rotation_angle], 
     turbulence_intensities=[TI, TI],
-    turbine_type=["iea_15MW"]*len(layout.x),
+#    turbine_type=["iea_15MW"]*len(layout.x),
+    turbine_type=["iea_15MW_floating_multi_dim_cp_ct"]*len(layout.x),
+    multidim_conditions={"Tp": 3.0, "Hs": 0.0},
     reference_wind_height=H, # IEA 15MW hub height
     wind_shear=wind_shear,
 )
@@ -145,6 +150,8 @@ print(windfarm_v_rel)
 
 print("\nRelative velocity differences (MITWindfarm - FLORIS) %:")
 print((windfarm_v_rel - floris_vels) / (windfarm_v_rel) * 100)
+
+print(fmodel.get_turbine_powers())
 
 # Generate plots
 plt.show()
