@@ -1,16 +1,28 @@
+from dataclasses import dataclass
 from attrs import define, field
 
 import numpy as np
+from numpy.typing import ArrayLike
+from scipy.interpolate import LinearNDInterpolator
 
 from floris.core.wake_model import BaseWakeModel
 
 from .Windfield import PowerLaw
 from ._Layout import Layout
 from .windfarm import CurledWindfarm
-from .Rotor import UnifiedAD_TI, Rotor, RotorSolution
+from .Rotor import Rotor, RotorSolution
+from .Windfield import Windfield
 
 @define
 class FlorisCurledWindfarm(BaseWakeModel):
+    """
+    Interface for using the MITWindfarm CurledWindfarm solver as a wake model in FLORIS.
+    This allows the use of the CurledWindfarm solver within the FLORIS framework (and using FLORIS
+    turbine operation models).
+
+    A power law background wind field is assumed, and the FLORIS flow field is used to set the wind
+    speed and turbulence intensity at the reference height. Further, 
+    """
     # Parameters (to fill in)
     solver_kwargs = field(default=None)
 
@@ -46,13 +58,16 @@ class FlorisCurledWindfarm(BaseWakeModel):
     def _solve_and_evaluate(self, farm, flow_field, grid, turbine_grid):
         # Assume all turbines have the same rotor diameter; not sure if
         # methods below handle varying rotor diameters?
-        if not np.all(farm.rotor_diameters == farm.rotor_diameters.mean()):
-            raise NotImplementedError("Varying rotor diameters not supported in FlorisWakeModel")
+        if not np.all(np.array(farm.turbine_type) == farm.turbine_type[0]):
+            raise NotImplementedError("Varying turbine types not supported in FlorisCurledWindfarm")
+        elif not np.all(farm.rotor_diameters == farm.rotor_diameters.mean()):
+            raise NotImplementedError(
+                "Varying rotor diameters not supported in FlorisCurledWindfarm"
+            )
         else:
             D = farm.rotor_diameters.mean()
+            turbine_type = farm.turbine_type[0]
 
-        # TODO: Check also for consistent turbine types; valid control arguments, etc
-        turbine_type = farm.turbine_type[0]
         rotor_model = RotorWrapper(
             thrust_coefficient_function=farm.turbine_thrust_coefficient_functions[turbine_type], #
             power_function=farm.turbine_power_functions[turbine_type],
@@ -83,6 +98,13 @@ class FlorisCurledWindfarm(BaseWakeModel):
                     flow_field.wind_shear,
                     flow_field.turbulence_intensities[f]
                 ),
+                # "base_windfield": WindfieldWrapper(
+                #     u=flow_field.u_sorted[f],
+                #     x=turbine_grid.x_sorted[f]/D,
+                #     y=turbine_grid.y_sorted[f]/D,
+                #     z=turbine_grid.z_sorted[f]/D,
+                #     TIamb=flow_field.turbulence_intensities[f]
+                # ),
                 "TIamb": flow_field.turbulence_intensities[f], # Needed? not sure
                 "solver_kwargs": self.solver_kwargs,
             }
@@ -109,7 +131,8 @@ class FlorisCurledWindfarm(BaseWakeModel):
 class RotorWrapper(Rotor):
     """
     Wrapper for the FLORIS operation model to be used as a rotor model in MITWindfarm. 
-    This allows the use of the FLORIS operation model within the CurledWindfarm solver, which is necessary for the FlorisCurledWindfarm wake model to work.
+    This allows the use of the FLORIS operation model within the CurledWindfarm solver, which is
+    necessary for the FlorisCurledWindfarm wake model to work.
     """
 
     # TODO: Handle multidimensional turbine conditions; how much can I take from turbine.py?
@@ -194,7 +217,7 @@ class RotorWrapper(Rotor):
             correct_cp_ct_for_tilt=self.correct_cp_ct_for_tilt,
         )
 
-        # TEMPORARY; Based on my basic understanding; may need updating
+        ### MIT team to check: Are the following calculations correct? Do they need to be updated?
         REWS = np.mean(Us)
         RETI = np.mean(TIs)
         Ctprime = 4*a/(1-a)
@@ -208,10 +231,14 @@ class RotorWrapper(Rotor):
         relative_tilt = tilt - self.power_thrust_table["ref_tilt"]
 
         class extra:
+            """
+            Small class to return normalized values for axial induction and u4.
+            """
             def __init__(self, an, u4, REWS):
                 self.an = an / REWS
                 self.u4 = u4 / REWS
 
+        ### MIT team to check: are these the correct values to pass to the RotorSolution object?
         rotor_solution = RotorSolution(
             yaw=np.deg2rad(yaw),
             Cp=P, # May not be needed
@@ -227,3 +254,73 @@ class RotorWrapper(Rotor):
             extra=extra(a, u4, REWS), # Model needs normalized u4, axial induction
         )
         return rotor_solution
+
+class WindfieldWrapper(Windfield):
+    """
+    Defines the base wind speed at x, y, z locations based on the FLORIS flow field and grid.
+    """
+    def __init__(self, u, x, y, z, TIamb = 0.0):
+        self.u_grid = u
+        self.x_grid = x
+        self.y_grid = y
+        self.z_grid = z
+
+        self._interp_func = LinearNDInterpolator(
+            np.vstack((self.x_grid.ravel(), self.y_grid.ravel(), self.z_grid.ravel())).T,
+            self.u_grid.ravel(),
+            # bounds_error=False,
+            # fill_value=None
+        )
+        self.TIamb = TIamb
+    
+    def wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        """
+        Returns the wind speed at the specified x, y, z coordinates based on the FLORIS flow field.
+
+        Parameters:
+        - x: query x-coordinate (normalized by rotor diameter).
+        - y: query y-coordinate (normalized by rotor diameter).
+        - z: query z-coordinate (normalized by rotor diameter).
+
+        Returns:
+        float: Wind speed at the specified coordinates.
+        """
+
+        # Grid interpolation to get the wind speed at the specified coordinates.
+        import ipdb; ipdb.set_trace()
+        query_points = np.vstack((np.array(x).ravel(), np.array(y).ravel(), np.array(z).ravel())).T
+        values = self._interp_func(query_points)
+        return values.reshape(np.shape(np.array(x)))
+
+    def TI(self, x: float, y: float, z: float) -> float:
+        """
+        Returns the ambient turbulence intensity in the shape of the query coordinates.
+
+        Parameters:
+        - x: query x-coordinate (normalized by rotor diameter).
+        - y: query y-coordinate (normalized by rotor diameter).
+        - z: query z-coordinate (normalized by rotor diameter).
+
+        Returns:
+        float: Turbulence intensity at the specified coordinates.
+        """
+        return self.TIamb * np.ones_like(x)
+
+    def wdir(self, x: float, y: float, z: float) -> float:
+        """
+        Returns rotated wind direction (zeros in the shape of the query coordinates).
+
+        Parameters:
+        - x: query x-coordinate (normalized by rotor diameter).
+        - y: query y-coordinate (normalized by rotor diameter).
+        - z: query z-coordinate (normalized by rotor diameter).
+
+        Returns:
+        float: Wind direction at the specified coordinates.
+        """
+        return np.zeros_like(x)
+
+# TODO:
+# - multidimensional turbine conditions
+# - Non power law base wind field (can I construct from FLORIS flow_field?)
+# - Check accounting for yaw ang tilt in the xs_glob, ys_glob, zs_glob calculation.
