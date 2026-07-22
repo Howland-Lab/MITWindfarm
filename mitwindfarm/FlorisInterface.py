@@ -13,6 +13,7 @@ from .Windfield import PowerLaw
 from ._Layout import Layout
 from .windfarm import CurledWindfarm
 from .Rotor import Rotor, RotorSolution
+from UnifiedMomentumModel.Utilities.Geometry import calc_eff_yaw
 
 @define
 class FlorisCurledWindfarm(BaseWakeModel):
@@ -30,44 +31,41 @@ class FlorisCurledWindfarm(BaseWakeModel):
 
     def turbine_solve(self, farm, flow_field, grid):
         self._check_valid_turbine_types(farm)
+        self._check_valid_flow_field(flow_field)
         self._solve_and_evaluate(farm, flow_field, grid, grid)
 
     def point_solve(self, farm, flow_field, grid):
         self._check_valid_turbine_types(farm)
+        self._check_valid_flow_field(flow_field)
         turbine_grid = self.generate_turbine_grid_objects(farm, flow_field)[2]
         self._solve_and_evaluate(farm, flow_field, grid, turbine_grid)
 
     def _check_valid_turbine_types(self, farm):
-                # Assume all turbines have the same rotor diameter; not sure if
-        # methods below handle varying rotor diameters?
-        if not np.all(np.array(farm.turbine_type) == farm.turbine_type[0]):
-            raise NotImplementedError("Varying turbine types not supported in FlorisCurledWindfarm")
-        elif not np.all(farm.rotor_diameters == farm.rotor_diameters.mean()):
+        # Require all turbines to be the same type
+        if not np.all(t == farm.turbines[0] for t in farm.turbines):
             raise NotImplementedError(
-                "Varying rotor diameters not supported in FlorisCurledWindfarm"
+                "Varying turbine models not supported in FlorisCurledWindfarm"
             )
-        # TODO: Add check for a valid operation model (i.e., has the velocity components)
-
-    def _solve_and_evaluate(self, farm, flow_field, grid, turbine_grid):
-
-        D = farm.rotor_diameters.mean()
-        turbine_type = farm.turbine_definitions[0]['turbine_type']
-
+        
+    def _check_valid_flow_field(self, flow_field):
         if flow_field.het_map or flow_field.heterogeneous_inflow_config:
             raise NotImplementedError(
                 "Heterogeneous inflows are not supported in FlorisCurledWindfarm."
             )
 
+    def _solve_and_evaluate(self, farm, flow_field, grid, turbine_grid):
+
+        D = farm.rotor_diameters[0]
+
         rotor_model = RotorWrapper(
-            thrust_coefficient_function=farm.turbine_thrust_coefficient_functions[turbine_type], #
-            power_function=farm.turbine_power_functions[turbine_type],
-            axial_induction_function=farm.turbine_axial_induction_functions[turbine_type],
-            power_thrust_table=farm.turbine_power_thrust_tables[turbine_type],
+            operation_model=farm.turbines[0].operation_model,
+            power_thrust_table=farm.turbines[0].power_thrust_table,
+            rotor_diameter=D,
             air_density=flow_field.air_density,
-            tilt_interp=farm.turbine_tilt_interps[turbine_type],
+            tilt_interp=farm.turbines[0].tilt_interp,
             average_method=turbine_grid.average_method,
             cubature_weights=grid.cubature_weights,
-            correct_cp_ct_for_tilt=True, # TODO: Pass in?
+            correct_cp_ct_for_tilt=farm.turbines[0].correct_cp_ct_for_tilt,
             use_floris_tilt=self.use_floris_tilt
         )
 
@@ -100,8 +98,9 @@ class FlorisCurledWindfarm(BaseWakeModel):
                 "TIamb": flow_field.turbulence_intensities[f], # Needed? not sure
                 "solver_kwargs": self.solver_kwargs,
             }
-            yaw = farm.yaw_angles[f, :] # How is this used?
-            tilt = farm.tilt_angles[f, :] # How is this used?
+            yaw = farm.yaw_angles[f, :]
+            # TODO: Evaluate the tilt angle for the current inflow velocity
+            tilt = 0.0 * np.ones_like(yaw)
             setpoints = list(zip(np.nan * np.ones_like(yaw), yaw, tilt))
 
             # Reinstantiate and solve for the current findex
@@ -125,15 +124,12 @@ class RotorWrapper(Rotor):
     Wrapper for the FLORIS operation model to be used as a rotor model in MITWindfarm. 
     This allows the use of the FLORIS operation model within the CurledWindfarm solver, which is
     necessary for the FlorisCurledWindfarm wake model to work.
-
-    TODO: use attrs? Not strictly needed.
     """
 
     def __init__(self,
-        thrust_coefficient_function,
-        axial_induction_function,
-        power_function,
+        operation_model,
         power_thrust_table,
+        rotor_diameter,
         air_density = 1.225,
         tilt_interp = None,
         average_method = "cubic-mean",
@@ -141,10 +137,9 @@ class RotorWrapper(Rotor):
         correct_cp_ct_for_tilt = True,
         use_floris_tilt = True
     ):
-        self.thrust_coefficient_function = thrust_coefficient_function
-        self.power_function = power_function
-        self.axial_induction_function = axial_induction_function
+        self.operation_model = operation_model
         self.power_thrust_table = power_thrust_table
+        self.rotor_diameter = rotor_diameter
         self.air_density = air_density
         self.tilt_interp = tilt_interp
         self.average_method = average_method
@@ -200,8 +195,14 @@ class RotorWrapper(Rotor):
                 "but multidimensional condition has not been set."
             )
 
+        yaw_r = np.deg2rad(yaw)
+        tilt_r = np.deg2rad(tilt)
+        yaw_r_eff = calc_eff_yaw(yaw_r, tilt_r)
+
+
         # Now, should be able to evaluate the FLORIS operation model (thrust coefficient)?
-        Ct = self.thrust_coefficient_function(
+        # TODO: Check that "both" cosine terms are included in SG's model
+        Ct = self.operation_model.thrust_coefficient(
             power_thrust_table=self.power_thrust_table,
             velocities=Us,
             turbulence_intensities=TIs,
@@ -217,7 +218,8 @@ class RotorWrapper(Rotor):
             correct_cp_ct_for_tilt=self.correct_cp_ct_for_tilt,
         )
 
-        a = self.axial_induction_function(
+        # TODO: Check: Does SG model return a_n here?
+        a = self.operation_model.axial_induction(
             power_thrust_table=self.power_thrust_table,
             velocities=Us,
             turbulence_intensities=TIs,
@@ -233,7 +235,7 @@ class RotorWrapper(Rotor):
             correct_cp_ct_for_tilt=self.correct_cp_ct_for_tilt,
         )
 
-        P = self.power_function(
+        P = self.operation_model.power(
             power_thrust_table=self.power_thrust_table,
             velocities=Us,
             turbulence_intensities=TIs,
@@ -253,24 +255,26 @@ class RotorWrapper(Rotor):
         if self.correct_cp_ct_for_tilt and self.tilt_interp is not None:
             tilt = self.tilt_interp(Us)
 
-        ### MIT team to check: Are the following calculations correct? Do they need to be updated?
-        cos_eff_yaw = np.cos(yaw) * np.cos(tilt)
         REWS = np.mean(Us)
         RETI = np.mean(TIs)
-        ### TODO: check a is equivalent to a_n (normal component?)
-        ### Also check how c_t is defined; is there a single cosine yaw term there? Does that match?
-        ### TODO: should there be another term for tilt? How does that come in?
-        Ctprime = Ct / ((1 - a)**2 * cos_eff_yaw**2)
-        # Ctprime = Ct / ((1 - a)**2 * np.cos(np.deg2rad(yaw))**2)
-        ### TODO: perhaps not appropriate; need to come from flow model
-        u4 = np.sqrt(np.maximum(1 - Ct, 0)) * Us
-        v4 = - (1/4) * Ct * np.sin(np.deg2rad(yaw)) * Us
-        # Or should these use 2.20a,b from Heck et al (2023)?
-        # u4 = (4 - Ctprime*np.cos(np.deg2rad(yaw))**2) / (4 + Ctprime*np.cos(np.deg2rad(yaw))**2) * Us
-        # v4 = - (4 * Ctprime * np.sin(np.deg2rad(yaw))*np.cos(np.deg2rad(yaw))**2) / (4 + Ctprime*np.cos(np.deg2rad(yaw))**2)**2 * Us
-        w4 = np.zeros_like(Us)
-
-        print(f"Tilt (deg): {tilt:.2f}")
+        if True: # TODO: Change to a check for whether the near_wake_velocities are returned
+            # TODO: add check that an appropriate model has been chosen (CosineLoss)
+            Ct = Ct * np.cos(yaw_r_eff) # Add second cosine term, as not done in CosineLoss model
+            Ctprime = Ct / ((1 - a)**2 * np.cos(yaw_r_eff)**2)
+            u4 = Us * np.sqrt(1 - 1/16 * Ct**2 * np.sin(yaw_r_eff)**2 - Ct)
+            v4 = - (1/4) * Ct * np.sin(yaw_r_eff) * Us
+            w4 = - (1/4) * Ct * np.sin(tilt_r) * Us
+            beta = 0.1403
+            x0 = (self.rotor_diameter
+                * np.cos(yaw_r_eff) / (2*beta)
+                * (Us - u4) / np.abs(Us - u4)
+                * np.sqrt(((1 - a) * np.cos(yaw_r_eff) * Us)/(Us + u4))
+            )
+            # Check: is Us - u4 ever negative?
+            # Check: how do we pass x0 to the CurledWindfarm solver?
+        else:
+            # Get from operation model
+            pass
 
         class extra:
             """
@@ -281,7 +285,7 @@ class RotorWrapper(Rotor):
                 self.Ct = Ct
                 self.u4 = u4 / REWS
 
-        ### MIT team to check: are these the correct values to pass to the RotorSolution object?
+        ### Still not sure how to pass in x0?
         rotor_solution = RotorSolution(
             yaw=np.deg2rad(yaw),
             Cp=P, # Needed to save off power in main FlorisCurledWindfarm solve
