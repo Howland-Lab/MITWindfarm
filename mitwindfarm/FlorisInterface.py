@@ -79,6 +79,8 @@ class FlorisCurledWindfarm(BaseWakeModel):
         # Use sorted version
         for f in range(flow_field.n_findex):
 
+            rotor_model.update_freestream_windspeed(flow_field.wind_speeds[f])
+
             # Handle possible multidimensional turbine conditions
             if flow_field.multidim_conditions is not None:
                 rotor_model.set_multidim_condition(flow_field.multidim_conditions, f)
@@ -91,7 +93,7 @@ class FlorisCurledWindfarm(BaseWakeModel):
             wf_init_kwargs = {
                 "rotor_model": rotor_model,
                 "base_windfield": PowerLaw(
-                    flow_field.wind_speeds[f],
+                    1.0, # Will be scaled up after solve
                     flow_field.reference_wind_height/D,
                     flow_field.wind_shear,
                     flow_field.turbulence_intensities[f]
@@ -127,7 +129,7 @@ class FlorisCurledWindfarm(BaseWakeModel):
             # Extract the wind speeds at the turbine locations
             relative_velocities = windfarm_sol.windfield.wsp(
                 grid.x_sorted[f]/D, grid.y_sorted[f]/D, grid.z_sorted[f]/D
-            )
+            ) * flow_field.wind_speeds[f] # Scale by the reference wind speed for this findex
 
             # Assign to flow field
             flow_field.u_sorted[f] = relative_velocities
@@ -192,6 +194,9 @@ class RotorWrapper(Rotor):
         )[0][0])
         self.power_thrust_table = self._power_thrust_table_md[self.multidim_condition]
 
+    def update_freestream_windspeed(self, Uref):
+        self.Uref = Uref
+
     def __call__(
         self, x: float, y: float, z: float, windfield, Ctprime, yaw=0, tilt=0,
     ):
@@ -199,7 +204,7 @@ class RotorWrapper(Rotor):
         Note that the value of Ctprime passed will be ignored, as Ctprime is computed 
         during the call.
         """
-        Us = windfield.wsp(x, y, z)
+        Us = windfield.wsp(x, y, z) 
         TIs = windfield.TI(x, y, z)
 
         if self.multidimensional_turbine and self.multidim_condition is None:
@@ -216,7 +221,7 @@ class RotorWrapper(Rotor):
         # TODO: Check that "both" cosine terms are included in SG's model
         Ct = self.operation_model.thrust_coefficient(
             power_thrust_table=self.power_thrust_table,
-            velocities=Us,
+            velocities=Us * self.Uref,
             turbulence_intensities=TIs,
             air_density=self.air_density,
             yaw_angles=yaw,
@@ -233,7 +238,7 @@ class RotorWrapper(Rotor):
         # TODO: Check: Does SG model return a_n here? Do we need it?
         a = self.operation_model.axial_induction(
             power_thrust_table=self.power_thrust_table,
-            velocities=Us,
+            velocities=Us * self.Uref,
             turbulence_intensities=TIs,
             air_density=self.air_density,
             yaw_angles=yaw,
@@ -249,7 +254,7 @@ class RotorWrapper(Rotor):
 
         P = self.operation_model.power(
             power_thrust_table=self.power_thrust_table,
-            velocities=Us,
+            velocities=Us * self.Uref,
             turbulence_intensities=TIs,
             air_density=self.air_density,
             yaw_angles=yaw,

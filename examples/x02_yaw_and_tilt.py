@@ -24,7 +24,7 @@ if __name__ == "__main__":
 
     rotation_angle = -5
     tilt = False
-    yaw_angle = 10
+    yaw_angle = 25
 
     # (Ct-prime, yaw, tilt)
     setpoints = [
@@ -51,7 +51,7 @@ if __name__ == "__main__":
 
     windfarm = CurledWindfarm(
         rotor_model=UnifiedAD_TI(),
-        base_windfield=PowerLaw(Uref=8.0, zref=H, exp=wind_shear, TIamb=TI),
+        base_windfield=PowerLaw(Uref=1.0, zref=H/D, exp=wind_shear, TIamb=TI),
         solver_kwargs=solver_kwargs,
         TIamb=TI,
     )
@@ -60,8 +60,8 @@ if __name__ == "__main__":
     windfarm_sol_rotated = windfarm(layout.rotate(rotation_angle), setpoints)
 
     fig, axes_windfarm = plt.subplots(2)
-    Plotting.plot_windfarm(windfarm_sol, axes_windfarm[0], vmin=0, vmax=U * 2)
-    Plotting.plot_windfarm(windfarm_sol_rotated, axes_windfarm[1], vmin=0, vmax=U * 2)
+    Plotting.plot_windfarm(windfarm_sol, axes_windfarm[0], vmin=0, vmax=2)
+    Plotting.plot_windfarm(windfarm_sol_rotated, axes_windfarm[1], vmin=0, vmax=2)
     fig.suptitle("Direct call")
 
     # Establish Floris model
@@ -151,13 +151,12 @@ if __name__ == "__main__":
 
     windfarm_v_rel_rot = windfarm_sol_rotated.windfield.wsp(rotated_x, rotated_y, (samples_z-H)/D)
     windfarm_v_rel = np.vstack([windfarm_v_rel, windfarm_v_rel_rot])
-    print(windfarm_v_rel)
+    print(windfarm_v_rel * U)
 
     print("\nRelative velocity differences (MITWindfarm - FLORIS) %:")
-    print((windfarm_v_rel - floris_vels) / (windfarm_v_rel) * 100)
+    print((windfarm_v_rel * U - floris_vels) / (windfarm_v_rel * U) * 100)
 
-    fmodel.run()
-    print(powers)
+    print(powers / 1e6)
 
     # Generate plots
     plt.show()
