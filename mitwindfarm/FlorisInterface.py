@@ -1,20 +1,22 @@
-from dataclasses import dataclass
-from attrs import define, field
-
 import copy
+from dataclasses import dataclass
+
 import numpy as np
+from attrs import define, field
+from floris.core.rotor_velocity import \
+    compute_tilt_angles_for_floating_turbines
+from floris.core.turbine.turbine import select_multidim_condition
+from floris.core.wake_model import BaseWakeModel
 from numpy.typing import ArrayLike
 from scipy.interpolate import LinearNDInterpolator
+from UnifiedMomentumModel.Utilities.Geometry import (calc_eff_yaw,
+                                                     eff_yaw_inv_rotation)
 
-from floris.core.wake_model import BaseWakeModel
-from floris.core.turbine.turbine import select_multidim_condition
-from floris.core.rotor_velocity import compute_tilt_angles_for_floating_turbines
-
-from .Windfield import PowerLaw
 from ._Layout import Layout
-from .windfarm import CurledWindfarm
 from .Rotor import Rotor, RotorSolution
-from UnifiedMomentumModel.Utilities.Geometry import calc_eff_yaw, eff_yaw_inv_rotation
+from .windfarm import CurledWindfarm
+from .Windfield import PowerLaw
+
 
 @define
 class FlorisCurledWindfarm(BaseWakeModel):
@@ -33,7 +35,15 @@ class FlorisCurledWindfarm(BaseWakeModel):
     def turbine_solve(self, farm, flow_field, grid):
         self._check_valid_turbine_types(farm)
         self._check_valid_flow_field(flow_field)
-        self._solve_and_evaluate(farm, flow_field, grid, grid)
+        powers, thrust_coefficients, axial_inductions = self._solve_and_evaluate(
+            farm, flow_field, grid, grid
+        )
+        # Assign outputs to farm
+        farm.set_turbine_outputs_by_original_ordering(
+            powers=powers,
+            thrust_coefficients=thrust_coefficients,
+            axial_inductions=axial_inductions
+        )
 
     def point_solve(self, farm, flow_field, grid):
         self._check_valid_turbine_types(farm)
@@ -70,11 +80,11 @@ class FlorisCurledWindfarm(BaseWakeModel):
             use_floris_tilt=self.use_floris_tilt
         )
 
-        # Temporary; this shouldn't be needed, but it seems I have something not quite right in
-        # initializing the farm object and its attributes.
-        farm.turbine_powers = np.zeros((flow_field.n_findex, farm.n_turbines))
-        farm.turbine_thrust_coefficients = np.zeros((flow_field.n_findex, farm.n_turbines))
-        farm.turbine_axial_inductions = np.zeros((flow_field.n_findex, farm.n_turbines))
+        # Create variables to store turbine outputs, and assign to farm at 
+        # end of solve routine.
+        powers = np.zeros((flow_field.n_findex, farm.n_turbines))
+        thrust_coefficients = np.zeros((flow_field.n_findex, farm.n_turbines))
+        axial_inductions = np.zeros((flow_field.n_findex, farm.n_turbines))
 
         # Use sorted version
         for f in range(flow_field.n_findex):
@@ -122,9 +132,9 @@ class FlorisCurledWindfarm(BaseWakeModel):
             windfarm = CurledWindfarm(**wf_init_kwargs)
             windfarm_sol = windfarm(layout, setpoints)
 
-            farm.turbine_powers[f] = np.array([r.Cp for r in windfarm_sol.rotors])
-            farm.turbine_thrust_coefficients[f] = np.array([r.extra.Ct for r in windfarm_sol.rotors])
-            farm.turbine_axial_inductions[f] = np.array([r.extra.an for r in windfarm_sol.rotors])
+            powers[f] = np.array([r.Cp for r in windfarm_sol.rotors])
+            thrust_coefficients[f] = np.array([r.extra.Ct for r in windfarm_sol.rotors])
+            axial_inductions[f] = np.array([r.extra.an for r in windfarm_sol.rotors])
 
             # Extract the wind speeds at the turbine locations
             relative_velocities = windfarm_sol.windfield.wsp(
@@ -133,6 +143,8 @@ class FlorisCurledWindfarm(BaseWakeModel):
 
             # Assign to flow field
             flow_field.u_sorted[f] = relative_velocities
+
+        return powers, thrust_coefficients, axial_inductions
 
 class RotorWrapper(Rotor):
     """
