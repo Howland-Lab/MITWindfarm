@@ -1,5 +1,4 @@
 import copy
-from dataclasses import dataclass
 
 import numpy as np
 from attrs import define, field
@@ -7,10 +6,10 @@ from floris.core.rotor_velocity import \
     compute_tilt_angles_for_floating_turbines
 from floris.core.turbine.turbine import select_multidim_condition
 from floris.core.wake_model import BaseWakeModel
-from numpy.typing import ArrayLike
-from scipy.interpolate import LinearNDInterpolator
-from UnifiedMomentumModel.Utilities.Geometry import (calc_eff_yaw,
-                                                     eff_yaw_inv_rotation)
+from UnifiedMomentumModel.Utilities.Geometry import (
+    calc_eff_yaw,
+    eff_yaw_inv_rotation
+)
 
 from ._Layout import Layout
 from .Rotor import Rotor, RotorSolution
@@ -86,7 +85,9 @@ class FlorisCurledWindfarm(BaseWakeModel):
         thrust_coefficients = np.zeros((flow_field.n_findex, farm.n_turbines))
         axial_inductions = np.zeros((flow_field.n_findex, farm.n_turbines))
 
-        # Use sorted version
+        # Loop over findices, and called CurledWindfarm solver for each findex.
+        # If CurledWindfarm is updated to handle multiple findices simultaneously, this loop can be
+        # removed.
         for f in range(flow_field.n_findex):
 
             rotor_model.update_freestream_windspeed(flow_field.wind_speeds[f])
@@ -108,7 +109,7 @@ class FlorisCurledWindfarm(BaseWakeModel):
                     flow_field.wind_shear,
                     flow_field.turbulence_intensities[f]
                 ),
-                "TIamb": flow_field.turbulence_intensities[f], # Needed? not sure
+                "TIamb": flow_field.turbulence_intensities[f],
                 "solver_kwargs": self.solver_kwargs,
             }
             yaw = farm.yaw_angles[f, :]
@@ -183,13 +184,15 @@ class RotorWrapper(Rotor):
 
     def set_multidim_condition(self, multidim_conditions, findex):
         """
-        Select the power, thrust curves to evaluate. Only used if multidimensional turbines are used.
+        Select the power, thrust curves to evaluate.
+        Only used if multidimensional turbines are used.
         """
         if self.multidimensional_turbine:
             pass
         else:
             raise ValueError(
-                "Attempting to set a multidimensional condition for a turbine that does not have a multidimensional power/thrust table."
+                "Attempting to set a multidimensional condition for a turbine that does not have a "
+                "multidimensional power/thrust table."
             )
         
         # Get findex position, if necessary
@@ -214,7 +217,7 @@ class RotorWrapper(Rotor):
     ):
         """
         Note that the value of Ctprime passed will be ignored, as Ctprime is computed 
-        during the call.
+        during the call based on the evaluated thrust_coefficient
         """
         Us = windfield.wsp(x, y, z) 
         TIs = windfield.TI(x, y, z)
@@ -238,7 +241,7 @@ class RotorWrapper(Rotor):
             air_density=self.air_density,
             yaw_angles=yaw,
             tilt_angles=tilt,
-            power_setpoints=None, # Figure out how to raise warning if nondefault
+            power_setpoints=None,
             awc_modes=None,
             awc_amplitudes=None,
             tilt_interp=self.tilt_interp,
@@ -255,7 +258,7 @@ class RotorWrapper(Rotor):
             air_density=self.air_density,
             yaw_angles=yaw,
             tilt_angles=tilt,
-            power_setpoints=None, # Figure out how to raise warning if nondefault
+            power_setpoints=None,
             awc_modes=None,
             awc_amplitudes=None,
             tilt_interp=self.tilt_interp,
@@ -271,7 +274,7 @@ class RotorWrapper(Rotor):
             air_density=self.air_density,
             yaw_angles=yaw,
             tilt_angles=tilt,
-            power_setpoints=None, # Figure out how to raise warning if nondefault
+            power_setpoints=None,
             awc_modes=None,
             awc_amplitudes=None,
             tilt_interp=self.tilt_interp,
@@ -286,15 +289,16 @@ class RotorWrapper(Rotor):
 
         REWS = np.mean(Us)
         RETI = np.mean(TIs)
-        if True: # TODO: Change to a check for whether the near_wake_velocities are returned
+        if hasattr(self.operation_model, "near_wake_velocities"):
+            u4, v4, w4, x0 = self.operation_model.near_wake_velocities()
+        else:
             # TODO: add check that an appropriate model has been chosen (CosineLoss)
             Ct = Ct * np.cos(calc_eff_yaw(yaw_r, tilt_r)) # Add second cosine term, as not done in CosineLoss model
 
             u4, v4, w4, x0 = near_wake_velocities_standin(Ct, Us, yaw_r, tilt_r, self.rotor_diameter)
-
             # Check: how do we pass x0 to the CurledWindfarm solver?
-        else:
-            u4, v4, w4, x0 = self.operation_model.near_wake_velocities()
+
+        # Compute Ctprime based on axial induction, thrust coefficient, and effective yaw angle
         Ctprime = Ct / ((1 - a)**2 * np.cos(calc_eff_yaw(yaw_r, tilt_r))**2)
 
         class extra:
@@ -306,13 +310,13 @@ class RotorWrapper(Rotor):
                 self.Ct = Ct
                 self.u4 = u4 / REWS
 
-        ### Still not sure how to pass in x0?
+        # TODO: Still not sure how to pass in x0?
         rotor_solution = RotorSolution(
             yaw=np.deg2rad(yaw),
             Cp=P, # Needed to save off power in main FlorisCurledWindfarm solve
-            Ct=Ct * REWS**2, # What is this?
+            Ct=Ct * REWS**2,
             Ctprime=Ctprime,
-            an=a * REWS, # Why multiply by REWS?
+            an=a * REWS,
             u4=u4,
             v4=v4,
             REWS=REWS,

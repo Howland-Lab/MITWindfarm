@@ -1,20 +1,13 @@
-import numpy as np
-
-from floris import FlorisModel, ParFlorisModel
-from floris.layout_visualization import plot_turbine_rotors
-from floris.flow_visualization import visualize_cut_plane
-
 import matplotlib.pyplot as plt
+import numpy as np
+from floris import FlorisModel, ParFlorisModel
+from floris.flow_visualization import visualize_cut_plane
+from floris.layout_visualization import plot_turbine_rotors
 from MITRotor import IEA15MW
 
-from mitwindfarm import (
-    Plotting,
-    Layout,
-    PowerLaw,
-)
+from mitwindfarm import FlorisCurledWindfarm, Layout, Plotting, PowerLaw
 from mitwindfarm.Rotor import UnifiedAD_TI
 from mitwindfarm.windfarm import CurledWindfarm
-from mitwindfarm import FlorisCurledWindfarm
 
 # Set up MITWindfarm solver and run standalone as a baseline
 
