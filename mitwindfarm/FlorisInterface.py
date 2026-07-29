@@ -5,6 +5,7 @@ from attrs import define, field
 from floris.core.rotor_velocity import \
     compute_tilt_angles_for_floating_turbines
 from floris.core.turbine.turbine import select_multidim_condition
+from floris.core.turbine import SimpleTurbine, CosineLossTurbine
 from floris.core.wake_model import BaseWakeModel
 from UnifiedMomentumModel.Utilities.Geometry import (
     calc_eff_yaw,
@@ -116,16 +117,9 @@ class FlorisCurledWindfarm(BaseWakeModel):
 
             if not self.use_floris_tilt:
                 tilt = 0.0 * np.ones_like(yaw)
-            elif farm.turbines[0].correct_cp_ct_for_tilt:
-                # Evaluate the tilt angle for the current inflow velocity (floating)
-                # TODO: check this works as expected.
-                tilt = compute_tilt_angles_for_floating_turbines(
-                    tilt_angles=farm.turbines[0].ref_tilt,
-                    tilt_interp=farm.turbines[0].tilt_interp,
-                    rotor_effective_velocities=flow_field.wind_speeds[f]
-                )
             else:
                 tilt = farm.turbines[0].ref_tilt * np.ones_like(yaw)
+                # tilt correction to be applied in rotor solve, if applicable
 
             setpoints = list(zip(np.nan * np.ones_like(yaw), yaw, tilt))
 
@@ -194,15 +188,17 @@ class RotorWrapper(Rotor):
                 "Attempting to set a multidimensional condition for a turbine that does not have a "
                 "multidimensional power/thrust table."
             )
-        
+
+        md_cond_f = copy.deepcopy(multidim_conditions)
+
         # Get findex position, if necessary
         for k, v in multidim_conditions.items():
             if isinstance(v, (list, np.ndarray)):
-                multidim_conditions[k] = v[findex]
+                md_cond_f[k] = v[findex]
 
         # Handle multidimensional turbine conditions.
         self.multidim_condition = tuple(select_multidim_condition(
-            multidim_conditions,
+            md_cond_f,
             [k for k in self._power_thrust_table_md.keys() if k != "condition_keys"],
              self._power_thrust_table_md["condition_keys"],
             1
@@ -229,6 +225,12 @@ class RotorWrapper(Rotor):
             )
 
         yaw_r = np.deg2rad(yaw)
+        if self.correct_cp_ct_for_tilt:
+            tilt = compute_tilt_angles_for_floating_turbines(
+                tilt_angles=tilt,
+                tilt_interp=self.tilt_interp,
+                rotor_effective_velocities=Us * self.Uref,
+            )
         tilt_r = np.deg2rad(tilt)
 
 
@@ -291,12 +293,33 @@ class RotorWrapper(Rotor):
         RETI = np.mean(TIs)
         if hasattr(self.operation_model, "near_wake_velocities"):
             u4, v4, w4, x0 = self.operation_model.near_wake_velocities()
-        else:
-            # TODO: add check that an appropriate model has been chosen (CosineLoss)
-            Ct = Ct * np.cos(calc_eff_yaw(yaw_r, tilt_r)) # Add second cosine term, as not done in CosineLoss model
+        elif isinstance(self.operation_model, CosineLossTurbine):
+            # Note that in this case, the value for axial induction a returned by
+            # CosineLossTurbine.axial_induction is _not_ consistent with the UMM,
+            # which means that the value of Ctprime computed below is also not consistent
+            # with the UMM.
 
-            u4, v4, w4, x0 = near_wake_velocities_standin(Ct, Us, yaw_r, tilt_r, self.rotor_diameter)
-            # Check: how do we pass x0 to the CurledWindfarm solver?
+            # Add second cosine term, as not done in CosineLoss model
+            Ct = Ct * np.cos(calc_eff_yaw(yaw_r, tilt_r))
+
+            u4, v4, w4, x0 = near_wake_velocities_standin(
+                Ct, Us, yaw_r, tilt_r, self.rotor_diameter
+            )
+        elif isinstance(self.operation_model, SimpleTurbine):
+            if yaw_r != 0 or tilt_r != 0:
+                raise NotImplementedError(
+                    "The SimpleTurbine operation model does not support yaw or tilt. "
+                    "Cannot compute near wake velocities. Consider using CosineLossTurbine instead."
+                )
+
+            u4, v4, w4, x0 = near_wake_velocities_standin(
+                Ct, Us, yaw_r, tilt_r, self.rotor_diameter
+            )
+        else:
+            raise NotImplementedError(
+                "The operation model does not have a near_wake_velocities method, and is not a" \
+                "SimpleTurbine or CosineLossTurbine. Cannot compute near wake velocities."
+            )
 
         # Compute Ctprime based on axial induction, thrust coefficient, and effective yaw angle
         Ctprime = Ct / ((1 - a)**2 * np.cos(calc_eff_yaw(yaw_r, tilt_r))**2)
