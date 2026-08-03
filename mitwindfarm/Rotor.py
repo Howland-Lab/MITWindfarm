@@ -479,7 +479,7 @@ class UnifiedMomentumTI_x0(UnifiedMomentum):
             / 4
             * (1 + u4)
             * np.sqrt((1 - a) * np.cos(self.eff_yaw) / (1 + u4))
-            / (self.beta * np.abs(1 - u4) / 2 + self.alpha * TI)
+            / (self.beta_s * np.abs(1 - u4) / 2 + self.alpha * TI)
         )  # re-compute x0 with TI influence decoupled
         result.x = (a, u4, v4, x0, dp)
         return super().post_process(result, Ctprime, yaw = yaw, tilt = tilt, **kwargs)
@@ -514,7 +514,7 @@ class UnifiedMomentumTI(UnifiedMomentum):
             / 4
             * (1 + u4)
             * np.sqrt((1 - an) * np.cos(self.eff_yaw) / (1 + u4))
-            / (self.beta * np.abs(1 - u4) / 2 + self.alpha * TI)
+            / (self.beta_s * np.abs(1 - u4) / 2 + self.alpha * TI)
         ) - x0
 
         # Eq. 1 - Rotor-normal induction in residual form.
