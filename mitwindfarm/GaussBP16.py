@@ -86,7 +86,7 @@ class GaussBPWakeModel(WakeModel):
             ky=self.kw,
             kz=self.kw,
             TI=rotor_sol.TI,  # deprecate TIamb argument
-            x0=rotor_sol.extra.x0 if self.couple_rotor_x0 else self.x0,
+            x0=rotor_sol.extra.x0 if self.couple_rotor_x0 else x0,
             theta0=None,
             astar=self.astar,
             bstar=self.bstar,
