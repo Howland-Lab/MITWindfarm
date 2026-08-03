@@ -1,6 +1,5 @@
 """
 Curled wake model solver in MITWindfarm.
-(Now in a separate file)
 
 Kirby Heck
 2025 June 6
@@ -16,6 +15,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter
 from scipy.interpolate import interpn, make_interp_spline
 from scipy.special import erf
+from scipy.integrate import trapezoid
 
 from mitwindfarm.Windfield import Windfield
 from mitwindfarm.Rotor import RotorSolution
@@ -76,7 +76,7 @@ class CurledWakeWindfield(Windfield):
         bottom_wall_z: Union[float, bool] = None,
         zero_at_boundaries: bool = True,
         clip_u: float = 0.1,
-        use_r4: bool = False,
+        use_r4: bool = None,
         sigma_diff_ic: float = 0.0,
         auto_expand: bool = True,
         verbose: bool = False,
@@ -113,14 +113,13 @@ class CurledWakeWindfield(Windfield):
         - zero_at_boundaries: Whether to impose zero for marched fields
             at the y and z boundaries (default: True).
             If True, `auto_expand` is recommended to be True as well.
-        - clip_u: Whether to clip the u-velocity to prevent negative values (default: 0.1).
-            Set to <= 0 to disable clipping
-        - use_r4: Whether to use the r4 or rotor radius for initial conditions (default: True).
-        - sigma_diff_ic: Near-wake diffusion length scale sigma_diff(x0) for the Ali et al. (2024)
-            momentum-corrected IC (non-dim, units of D). Combined with smooth_fact to give the
-            total effective diffusion at x0, correcting the ic_stencil_corrected Newton target so
-            that M(x0) = -T/rho rather than M(0) = -T/rho. Default 0.0 (no correction, matches
-            current behavior). Rough estimate: sqrt(2 * C_nu * l_nw^2 * TI * x0).
+        - clip_u: Whether to clip the u-velocity in advection term to prevent negative values 
+            (default: 0.1). Set to <= 0 to disable clipping
+        - use_r4: Whether to use the r4 or rotor radius for initial conditions. If left
+            as `None`, uses Ali-corrected IC radius R_d. (default: None).
+        - sigma_diff_ic: diffusion length scale correction for initial condition from 
+            Ali et al. (2024). Corrects IC to account for quadratic term in momentum integral to
+            conserve thrust. Default: 0.0 (no correction). See `ic_stencil_corrected` for more details.
         - auto_expand: Whether to automatically expand the domain when needed (default: True).
         - verbose: Prints debug information if True (default: False).
         """
@@ -275,88 +274,6 @@ class CurledWakeWindfield(Windfield):
             module.stamp_ic(turbine)  # do anything initial condition-related
 
         return
-        # streamwise velocity initial condition:
-        smooth_fact = self.smooth_fact if smooth_fact is None else smooth_fact
-        eff_yaw = calc_eff_yaw(rotor.yaw, rotor.tilt)
-        # rotor = rotor_solution
-        if isinstance(self.use_r4, bool):
-            r4 = (
-                np.sqrt((1 - rotor.extra.an) / rotor.extra.u4) * D / 2
-                if self.use_r4
-                else D / 2
-            )
-            # calculate yaw angle in "yaw-only" frame
-            # create stencil
-            shape = ic_stencil(
-                self.y,
-                self.z,
-                yt,
-                zt,
-                smooth_fact=smooth_fact,
-                r4 = r4,
-                eff_yaw = eff_yaw,
-                yaw = rotor.yaw,
-                tilt = rotor.tilt,
-            )
-
-            # stamp the rotor solution into the wind field
-            delta_u = shape * (rotor.u4 - rotor.REWS)  # delta_u, adjusted by REWS
-            self.du[-1, ...] += delta_u
-        else:
-            # RECOMMENDED: enforce momentum conservation with this method
-            delta_u = ic_stencil_corrected(
-                self.y,
-                self.z,
-                yt,
-                zt,
-                rotor,
-                smooth_fact=smooth_fact,
-            )
-            self.du[-1, ...] += delta_u
-
-
-        # dv, dw initial conditions:
-        if eff_yaw == 0:
-            return  # no additional dv, dw to stamp in for this turbine
-
-        # NOTE: rotor.Ct differs from Shapiro et al. (2018) definition - includes cos^2(yaw) already
-        Gamma_0 = 0.5 * D * rotor.REWS * rotor.Ct * np.sin(eff_yaw)
-
-        v, w = compute_vortex_field(
-            self.y,
-            self.z,
-            yt=yt,
-            zt=zt,
-            Gamma_0=Gamma_0,
-            D=D,
-            sigma_vortex=self.sigma_vortex,
-            N_vortex=self.N_vortex,
-            eff_yaw=eff_yaw,
-            yaw=rotor.yaw,
-            tilt=rotor.tilt,
-        )
-        # symmetry vortices (negative in sign, centered around zt_ghost)
-        if self.bottom_wall_z > -np.inf:
-            # zt_ghost = z_wall - z_hub = z_wall - (z_t - z_wall)
-            zt_ghost = self.bottom_wall_z * 2 - zt
-            vghost, wghost = compute_vortex_field(
-                self.y,
-                self.z,
-                yt=yt,
-                zt=zt_ghost,
-                Gamma_0=Gamma_0,
-                D=D,
-                sigma_vortex=self.sigma_vortex,
-                N_vortex=self.N_vortex,
-                eff_yaw=eff_yaw,
-                yaw=rotor.yaw,
-                tilt=-rotor.tilt,  # mirror the circulation for tilt
-            )
-            v += vghost
-            w += wghost
-
-        self.dv[-1, ...] += v  # stamp in dv
-        self.dw[-1, ...] += w  # stamp in dw
 
     def adjust_grid_bounds(
         self,
@@ -893,8 +810,11 @@ class DefaultUModel(CurledUModel):
         u = _vars["u"]
         v = _vars["v"]
         w = _vars["w"]
-        nu_T = _vars.get("nu_T", self.curledwake.modules["dk"].nu_T(x))
-        _vars["nu_T"] = nu_T  # update nu_T in shared flow data
+        if "nu_T" in _vars:
+            nu_T = _vars["nu_T"]
+        else:
+            nu_T = self.curledwake.modules["dk"].nu_T(x)
+            _vars["nu_T"] = nu_T  # cache nu_T in shared flow data for other modules this step
         y, z = self.curledwake.grid[1:]
         # ============== du/dx computation ==============
         dudy = np.gradient(du, y, axis=0)
@@ -984,8 +904,11 @@ class MarchedVModel(CurledVModel):
         """Computes d(du)/dx at location x"""
         _vars = self.curledwake.shared_flow_data
         du, dv, u, v, w = [_vars[key] for key in ["du", "dv", "u", "v", "w"]]
-        nu_T = _vars.get("nu_T", self.curledwake.modules["dk"].nu_T(x))
-        _vars["nu_T"] = nu_T  # update nu_T in shared flow data
+        if "nu_T" in _vars:
+            nu_T = _vars["nu_T"]
+        else:
+            nu_T = self.curledwake.modules["dk"].nu_T(x)
+            _vars["nu_T"] = nu_T  # cache nu_T in shared flow data for other modules this step
         y, z = self.curledwake.grid[1:]
         # ============== du/dx computation ==============
         dvdy = np.gradient(dv, y, axis=0)
@@ -1286,8 +1209,12 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
         """
         y = self.curledwake.grid[1]
         z = self.curledwake.grid[2]
-        nu_T = self.nu_T(x)  # TODO: reduce redundancy here with du module?
         vars = self.curledwake.shared_flow_data
+        if "nu_T" in vars:
+            nu_T = vars["nu_T"]
+        else:
+            nu_T = self.nu_T(x)
+            vars["nu_T"] = nu_T  # cache nu_T in shared flow data for other modules this step
         u, v, w, du, dk = [vars[name] for name in ["u", "v", "w", "du", "dk"]]
         lmix = self._lmix(x)
         if np.any(lmix <= 0):
@@ -1313,78 +1240,75 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
         return dkdx
 
 
+class CurledKL_hub(CurledTurbulenceModel_kl):
+    """
+    Same as the "k-l" model, except using hub-height values for lmix.
+    
+    Note: this is what is assumed in Klemmer and Howland (2025), not what is
+    coded in `CurledTurbulenceModel_kl` (personal communication).
+    """
+
+    name = "kl-hub"
+
+    def _lmix(self, x):
+        """Computes mixing length based on the wake width at hub height"""
+        zt = self.curledwake.turbines[-1].zt  # downstream-most hub height
+        zidx = np.argmin(np.abs(self.curledwake.z - zt))
+        lmix = interpolate_lmix(
+            self.curledwake.shared_flow_data["du"], self.curledwake.grid[1], zid=zidx, relative=False,
+        )[:, None]
+        return lmix
+
+
+class CurledTurbulenceModel_Scott(CurledTurbulenceModel):
+    """Curled wake turbulence model from Scott et al. (2023) WES paper"""
+
+    name = "scott"
+
+    def __init__(
+        self,
+        curledwake,
+        sigma: float = 5.5,
+        use_rews_as_uhub=False,
+    ):
+        """
+        Initializes the turbulence model. Note that all variables must
+        be non-dimensionalized or otherwise consistent with the
+        curled wake solver.
+
+        Parameters:
+        - curledwake: The curled wake solver
+        - sigma: Rayleigh distribution scale parameter, default 5.5
+        - use_rews_as_uhub: Whether to use REWS as the hub wind speed for U_B
+            Default is False. (Eq. 15 is not clear for wakes in superposition)
+
+        TODO: extend to be a function of y, z
+        """
+        super().__init__(curledwake=curledwake)
+        self.sigma = sigma
+        self.use_rews_as_uhub = use_rews_as_uhub
+
+    def nu_T(self, x):
+        """
+        Computes Eq. 15 in Scott et al. (2023) WES paper
+
+        Note here that nu_T(x) is not a function of y and z.
+        """
+        turb = self.curledwake.turbines[-1]
+        xlocal = x - turb.xt
+        if self.use_rews_as_uhub:
+            uhub = turb.rotor_solution.REWS
+        else:
+            uhub = self.curledwake.base_windfield.wsp(turb.xt, turb.yt, turb.zt)
+        A = turb.D * uhub * np.sqrt(1 - turb.rotor_solution.Ct) / 4
+        return A * (0.01 + xlocal / self.sigma**2) * np.exp(-xlocal**2 / (2 * self.sigma**2))
+
+
 # ███████ ██    ██ ███    ██  ██████ ████████ ██  ██████  ███    ██ ███████
 # ██      ██    ██ ████   ██ ██         ██    ██ ██    ██ ████   ██ ██
 # █████   ██    ██ ██ ██  ██ ██         ██    ██ ██    ██ ██ ██  ██ ███████
 # ██      ██    ██ ██  ██ ██ ██         ██    ██ ██    ██ ██  ██ ██      ██
 # ██       ██████  ██   ████  ██████    ██    ██  ██████  ██   ████ ███████
-
-
-def compute_vortex_field1(
-    y,
-    z,
-    yt,
-    zt,
-    Gamma_0,
-    D=1,
-    sigma_vortex=0.1,
-    N_vortex=100,
-    eff_yaw=0.0,
-    yaw=0.0,
-    tilt=0.0,
-):    
-    """
-    Computes the CVP field from an elliptical distribution of Lamb-Oseen vortices
-    spaced evenly along the vertical axis of the rotor disk.
-
-    Parameters:
-    - y: y-coordinates (1D array)
-    - z: z-coordinates (1D array)
-    - yt: y-coordinate of the turbine center
-    - zt: z-coordinate of the turbine center
-    - Gamma_0: Normalized circulation strength
-    - D: Rotor diameter (default: 1)
-    - sigma_vortex: Standard deviation of the vortex distribution (default: 0.1)
-    - N_vortex: Number of vortices to distribute along the rotor disk (default: 100)
-    - eff_yaw: effective yaw angle of the turbine, in radians (default: 0.0)
-    - yaw: yaw angle of the turbine, in radians (default: 0.0
-    - tilt: tilt angle of the turbine, in radians (default: 0.0)
-
-    Returns:
-    - v, w: 2D arrays of the velocity field components in the y and z directions
-    """
-    dy = y[1] - y[0]
-    dz = z[1] - z[0]
-    # r-axis: clip edges to prevent singularities
-    d_yx = np.maximum(dy, dz)
-    # along z-axis in yaw-only frame (also the radial distance of each point from center in any frame)
-    r_i = np.linspace(-(D - d_yx) / 2, (D - d_yx) / 2, N_vortex)
-    # r_i = np.array([-D/2, D/2])
-    # rotate points into yaw-and-tilt frame
-    _, y_i, z_i = eff_yaw_inv_rotation(np.zeros_like(r_i), np.zeros_like(r_i), r_i, eff_yaw, yaw, tilt)
-
-    Gamma_i = (
-        Gamma_0 * 4 * r_i / (N_vortex * D * np.sqrt(1 - (2 * r_i / D) ** 2))
-    )
-    # Gamma_i = Gamma_0 * np.array([-1, 1])
-    sigma = sigma_vortex * D
-
-    # now we build the main summation, which is 3D (y, z, i)
-    yG, zG = np.meshgrid(y, z, indexing="ij")
-    yG = yG[..., None]  # expand extra dimension
-    zG = zG[..., None]  # expand extra dimension
-    rsq = (yG - yt - y_i[None, None, :]) ** 2 + (zG - zt - z_i[None, None, :]) ** 2  # 3D grid variable
-    rsq = np.clip(rsq, 1e-8, None)  # avoid singularities
-
-    # put pieces together:
-    exponent = 1 - np.exp(-rsq / sigma**2)
-    summation = exponent / (2 * np.pi * rsq) * Gamma_i[None, None, :]
-
-    # sum all vortices along last dim
-    v = np.sum(summation * (zG - zt - z_i[None, None, :]), axis=-1)
-    w = np.sum(summation * -(yG - yt - y_i[None, None, :]), axis=-1)
-
-    return v, w
 
 
 def compute_vortex_field(
@@ -1401,7 +1325,7 @@ def compute_vortex_field(
     tilt=0.0,
 ):
     """
-    Computes the induced velocity field using Cosine-Spaced discrete vortex filaments.
+    Computes the induced velocity field using cosine-spaced discrete vortex filaments.
     This avoids the tip singularity issues of equispaced lifting lines.
     """
     sigma = sigma_vortex * D
@@ -1601,7 +1525,7 @@ def ic_stencil_corrected(
         )
         du = shape * (rotor.u4 - rotor.REWS)
         integrand = (rotor.REWS + du) * du
-        int_mom_def = np.trapz(np.trapz(integrand, z), y)
+        int_mom_def = trapezoid(trapezoid(integrand, z), y)
 
         # Ali et al. (2024) correction: adjust target so M(x0) = -T/rho instead of M(0) = -T/rho.
         # The near-wake diffusion (sigma_diff) causes |M| to grow from x=0 to x0.
