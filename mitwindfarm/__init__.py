@@ -5,5 +5,12 @@ from .Superposition import Linear, Niayifar, Quadratic, Dominant
 from .Wake import WakeModel, GaussianWakeModel, GaussianWake, VariableKwGaussianWakeModel
 from .SkewWake import SkewGaussianWake, SkewGaussianWakeModel
 from .VortexWake import VortexWake, VortexWakeModel, VariableVortexWakeModel
-from .windfarm import WindfarmSolution, PartialWindfarmSolution, Windfarm, CosineWindfarm, CurledWindfarm
-from .Windfield import Uniform, PowerLaw, Superimposed, LogWindfield, ArbitraryZWindfield
+from .CurledWake import CurledWakeWindfield, CurledTurbulenceModel
+from .windfarm import (
+    WindfarmSolution,
+    PartialWindfarmSolution,
+    Windfarm,
+    CosineWindfarm,
+    CurledWindfarm,
+)
+from .Windfield import Uniform, PowerLaw, Superimposed, LogWindfield, ArbitraryZWindfield, ArbitraryXWindfield
