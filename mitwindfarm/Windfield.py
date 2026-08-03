@@ -373,6 +373,42 @@ class ArbitraryZWindfield(Windfield):
             return np.zeros_like(z)
 
 
+class ArbitraryXWindfield(Windfield):
+    """
+    Arbitrary wind field in the x-direction with no dependence on y or z
+
+    Methods:
+    - wsp(x, y, z): Returns an array of U0 with the same shape as input coordinates.
+    - TI(x, y, z): Returns an array of TIamb with the same shape as input coordinates
+    - wdir(x, y, z): Returns an array of zeros with the same shape as input coordinates.
+    """
+
+    def __init__(self, x, U_x=None, wdir_x=None, TIamb_x=None, TIamb=0):
+        self.x = x
+        self.U_x = U_x  # required
+        self.wdir_x = wdir_x  # optional
+        self.TIamb_x = TIamb_x  # optional
+        self.TIamb = TIamb  # optional, constant TI value
+
+    def wsp(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        x, y, z = np.broadcast_arrays(x, y, z)
+        return np.interp(x, self.x, self.U_x)
+
+    def TI(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        x, y, z = np.broadcast_arrays(x, y, z)
+        if self.TIamb_x is not None:
+            return np.interp(x, self.x, self.TIamb_x)
+        else:
+            return self.TIamb * np.ones_like(z)
+
+    def wdir(self, x: ArrayLike, y: ArrayLike, z: ArrayLike) -> ArrayLike:
+        x, y, z = np.broadcast_arrays(x, y, z)
+        if self.wdir_x is not None:
+            return np.interp(x, self.x, self.wdir_x)
+        else:
+            return np.zeros_like(z)
+
+
 class ShearedWindfield(Windfield):
     """
     Windfield with linear gradients of U and alpha but constant U in veer
