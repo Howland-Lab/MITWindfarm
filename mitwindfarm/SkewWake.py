@@ -156,7 +156,7 @@ class SkewGaussianWake(Wake):
         u4 = self.rotor_sol.u4 / self.rotor_sol.REWS
         radical = np.clip(1 - Ct / (8 * sigma_y * sigma_z), 0, None)  # clip to avoid NaN
         du = 1 - np.sqrt(radical)
-        du = np.clip(du, 0, 1 - u4) * (x >= 0)  # clip for near wake fix and to prevent wakes upstream
+        du = np.clip(du, 0, None) * (x >= 0)  # clip for near wake fix and to prevent wakes upstream
         gaussian = np.exp(
             -0.5 * (((y - x * np.tan(alpha_in)) / sigma_y) ** 2 + (z / sigma_z) ** 2)
         )
