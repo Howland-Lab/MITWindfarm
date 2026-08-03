@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
 from numpy.typing import ArrayLike
+from scipy.integrate import trapezoid
 
 
 class RotorGrid(ABC):
@@ -127,7 +128,7 @@ class Area:
         return (
             4
             / np.pi
-            * np.trapz(
-                np.trapz(self.r_mesh * U, self.r_mesh, axis=-1), self.thetas, axis=-1
+            * trapezoid(
+                trapezoid(self.r_mesh * U, self.r_mesh, axis=-1), self.thetas, axis=-1
             )
         )
