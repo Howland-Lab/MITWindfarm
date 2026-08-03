@@ -28,9 +28,9 @@ class FlorisCurledWindfarm(BaseWakeModel):
     A power law background wind field is assumed, and the FLORIS flow field is used to set the wind
     speed and turbulence intensity at the reference height. Further, 
     """
-    # Parameters (to fill in)
-    solver_kwargs = field(default=None)
-    use_floris_tilt = field(default=True, init=True)
+
+    solver_kwargs: dict = field(default=None)
+    use_floris_tilt: bool = field(default=True, init=True)
 
     def turbine_solve(self, farm, flow_field, grid):
         self._check_valid_turbine_types(farm)
@@ -127,7 +127,7 @@ class FlorisCurledWindfarm(BaseWakeModel):
             windfarm = CurledWindfarm(**wf_init_kwargs)
             windfarm_sol = windfarm(layout, setpoints)
 
-            powers[f] = np.array([r.Cp for r in windfarm_sol.rotors])
+            powers[f] = np.array([r.extra.power for r in windfarm_sol.rotors])
             thrust_coefficients[f] = np.array([r.extra.Ct for r in windfarm_sol.rotors])
             axial_inductions[f] = np.array([r.extra.an for r in windfarm_sol.rotors])
 
@@ -235,14 +235,13 @@ class RotorWrapper(Rotor):
 
 
         # Now, should be able to evaluate the FLORIS operation model (thrust coefficient)?
-        # TODO: Check that "both" cosine terms are included in SG's model
         Ct = self.operation_model.thrust_coefficient(
             power_thrust_table=self.power_thrust_table,
-            velocities=Us * self.Uref,
-            turbulence_intensities=TIs,
+            velocities=np.array([[Us]]) * self.Uref,
+            turbulence_intensities=np.array([[TIs]]),
             air_density=self.air_density,
-            yaw_angles=yaw,
-            tilt_angles=tilt,
+            yaw_angles=np.array([[yaw]]),
+            tilt_angles=np.array([[tilt]]),
             power_setpoints=None,
             awc_modes=None,
             awc_amplitudes=None,
@@ -252,14 +251,13 @@ class RotorWrapper(Rotor):
             correct_cp_ct_for_tilt=self.correct_cp_ct_for_tilt,
         )
 
-        # TODO: Check: Does SG model return a_n here? Do we need it?
         a = self.operation_model.axial_induction(
             power_thrust_table=self.power_thrust_table,
-            velocities=Us * self.Uref,
-            turbulence_intensities=TIs,
+            velocities=np.array([[Us]]) * self.Uref,
+            turbulence_intensities=np.array([[TIs]]),
             air_density=self.air_density,
-            yaw_angles=yaw,
-            tilt_angles=tilt,
+            yaw_angles=np.array([[yaw]]),
+            tilt_angles=np.array([[tilt]]),
             power_setpoints=None,
             awc_modes=None,
             awc_amplitudes=None,
@@ -271,11 +269,11 @@ class RotorWrapper(Rotor):
 
         P = self.operation_model.power(
             power_thrust_table=self.power_thrust_table,
-            velocities=Us * self.Uref,
-            turbulence_intensities=TIs,
+            velocities=np.array([[Us]]) * self.Uref,
+            turbulence_intensities=np.array([[TIs]]),
             air_density=self.air_density,
-            yaw_angles=yaw,
-            tilt_angles=tilt,
+            yaw_angles=np.array([[yaw]]),
+            tilt_angles=np.array([[tilt]]),
             power_setpoints=None,
             awc_modes=None,
             awc_amplitudes=None,
@@ -292,7 +290,21 @@ class RotorWrapper(Rotor):
         REWS = np.mean(Us)
         RETI = np.mean(TIs)
         if hasattr(self.operation_model, "near_wake_velocities"):
-            u4, v4, w4, x0 = self.operation_model.near_wake_velocities()
+            u4, v4, w4, x0 = self.operation_model.near_wake_velocities(
+                power_thrust_table=self.power_thrust_table,
+                velocities=np.array([[Us]]) * self.Uref,
+                turbulence_intensities=np.array([[TIs]]),
+                air_density=self.air_density,
+                yaw_angles=np.array([[yaw]]),
+                tilt_angles=np.array([[tilt]]),
+                power_setpoints=None,
+                awc_modes=None,
+                awc_amplitudes=None,
+                tilt_interp=self.tilt_interp,
+                average_method=self.average_method,
+                cubature_weights=self.cubature_weights,
+                correct_cp_ct_for_tilt=self.correct_cp_ct_for_tilt,
+            )
         elif isinstance(self.operation_model, CosineLossTurbine):
             # Note that in this case, the value for axial induction a returned by
             # CosineLossTurbine.axial_induction is _not_ consistent with the UMM,
@@ -303,7 +315,7 @@ class RotorWrapper(Rotor):
             Ct = Ct * np.cos(calc_eff_yaw(yaw_r, tilt_r))
 
             u4, v4, w4, x0 = near_wake_velocities_standin(
-                Ct, Us, yaw_r, tilt_r, self.rotor_diameter
+                Ct, Us, yaw_r, tilt_r
             )
         elif isinstance(self.operation_model, SimpleTurbine):
             if yaw_r != 0 or tilt_r != 0:
@@ -313,7 +325,7 @@ class RotorWrapper(Rotor):
                 )
 
             u4, v4, w4, x0 = near_wake_velocities_standin(
-                Ct, Us, yaw_r, tilt_r, self.rotor_diameter
+                Ct, Us, 0.0, 0.0
             )
         else:
             raise NotImplementedError(
@@ -327,30 +339,33 @@ class RotorWrapper(Rotor):
         class extra:
             """
             Small class to return normalized values for axial induction and u4.
+            Also used to store turbine power so that it can be passed back to FLORIS.
             """
-            def __init__(self, a, u4, Ct, REWS):
+            def __init__(self, a, u4, Ct, x0, REWS, power):
                 self.an = a
                 self.Ct = Ct
                 self.u4 = u4 / REWS
+                self.x0 = x0
+                self.power = power
 
-        # TODO: Still not sure how to pass in x0?
+        x0 = np.array([[0.7]])
         rotor_solution = RotorSolution(
             yaw=np.deg2rad(yaw),
-            Cp=P, # Needed to save off power in main FlorisCurledWindfarm solve
-            Ct=Ct * REWS**2,
-            Ctprime=Ctprime,
-            an=a * REWS,
-            u4=u4,
-            v4=v4,
+            Cp=None, # Not computed by FLORIS rotor models
+            Ct=Ct[0,0] * REWS**2,
+            Ctprime=Ctprime[0,0],
+            an=a[0,0] * REWS,
+            u4=u4[0,0] * REWS,
+            v4=v4[0,0] * REWS,
             REWS=REWS,
             tilt=np.deg2rad(tilt) if self.use_floris_tilt else 0.0,
-            w4=w4,
+            w4=w4[0,0] * REWS,
             TI=RETI,
-            extra=extra(a, u4, Ct, REWS)
+            extra=extra(a[0,0], u4[0,0], Ct[0,0], x0[0,0], REWS, P[0,0])
         )
         return rotor_solution
 
-def near_wake_velocities_standin(Ct, Us, yaw_r, tilt_r, D):
+def near_wake_velocities_standin(Ct, Us, yaw_r, tilt_r):
 
     yaw_r_eff = calc_eff_yaw(yaw_r, tilt_r)
 
@@ -362,9 +377,9 @@ def near_wake_velocities_standin(Ct, Us, yaw_r, tilt_r, D):
     a = 1 + 0.5 * (Ct * Us)/(u4 - Us)
 
     beta = 0.1403
-    x0 = (D
-        * np.cos(yaw_r_eff) / (2*beta)
-        * (Us - u4) / np.abs(Us - u4)
+    x0 = (
+        np.cos(yaw_r_eff) / (2*beta)
+        * (Us + u4) / np.abs(Us - u4)
         * np.sqrt(((1 - a) * np.cos(yaw_r_eff) * Us)/(Us + u4))
     )
 
