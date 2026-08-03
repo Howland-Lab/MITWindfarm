@@ -3,7 +3,7 @@ import numpy as np
 from floris import FlorisModel, ParFlorisModel
 from floris.flow_visualization import visualize_cut_plane
 from floris.layout_visualization import plot_turbine_rotors
-from MITRotor import IEA15MW
+from MITRotor.FlorisInterface.FlorisInterface import MITRotorTurbine
 
 from mitwindfarm import FlorisCurledWindfarm, Layout, Plotting, PowerLaw
 from mitwindfarm.Rotor import UnifiedAD_TI
@@ -21,16 +21,16 @@ if __name__ == "__main__":
 
     # (Ct-prime, yaw, tilt)
     setpoints = [
-        (2, 0, 0),
-        (2, 0, 0),
-        (2, 0, 0),
+        (1.5, 0, 0.1047),
+        (1.5, 0, 0.1047),
+        (1.5, 0, 0.1047),
     ]
 
     D = 242.24
     H = 150.0
     wind_shear = 0.0
     TI = 0.06
-    U = 8.0
+    U = 10.0
     layout = Layout([0, 12 / 2, 24 / 2], [0, 0, 0], [0, 0, 0])
 
     solver_kwargs = dict(
@@ -43,7 +43,7 @@ if __name__ == "__main__":
 
     windfarm = CurledWindfarm(
         rotor_model=UnifiedAD_TI(),
-        base_windfield=PowerLaw(Uref=1.0, zref=H, exp=wind_shear, TIamb=TI),
+        base_windfield=PowerLaw(Uref=1.0, zref=H/D, exp=wind_shear, TIamb=TI),
         solver_kwargs=solver_kwargs,
         TIamb=TI,
     )
@@ -76,9 +76,15 @@ if __name__ == "__main__":
         solver_kwargs=solver_kwargs,
         use_floris_tilt=tilt_rotor_in_wake_model
     ))
+
+    # Assign MITRotor rotor model
+    fmodel.set_operation_model(MITRotorTurbine())
+
     # Run FLORIS using MITWindfarm wake model/solver, get turbine powers
     fmodel.run()
     powers = fmodel.get_turbine_powers()
+    print(powers)
+    
 
     # Extracting and plotting FLORIS results
     fig, axes_floris = plt.subplots(2)
@@ -95,6 +101,9 @@ if __name__ == "__main__":
         cmap=cmap_floris,
         clevels=100,
         levels=[],
+        color_bar=True,
+        min_speed=0,
+        max_speed=10,
     )
     horizontal_plane = fmodel.calculate_horizontal_plane(
         x_resolution=200,
@@ -109,6 +118,9 @@ if __name__ == "__main__":
         cmap=cmap_floris,
         clevels=100,
         levels=[],
+        color_bar=True,
+        min_speed=0,
+        max_speed=10,
     )
 
     # Sample at specific points
@@ -119,6 +131,10 @@ if __name__ == "__main__":
     axes_floris[0].scatter(samples_x, samples_y, color="k", marker=".")
     axes_floris[1].scatter(samples_x, samples_y, color="k", marker=".")
     axes_windfarm[0].scatter(samples_x/D, samples_y/D, color="k", marker=".")
+
+    for i, (x, y) in enumerate(zip(samples_x, samples_y)):
+        axes_floris[0].annotate(f"{i}", (x, y), textcoords="offset points", xytext=(0, 10), ha="center")
+        axes_windfarm[0].annotate(f"{i}", (x/D, y/D), textcoords="offset points", xytext=(0, 10), ha="center")
     fig.suptitle("Called via FLORIS")
 
     floris_vels = fmodel.sample_flow_at_points(samples_x, samples_y, samples_z)
@@ -149,8 +165,6 @@ if __name__ == "__main__":
 
     print("\nRelative velocity differences (MITWindfarm - FLORIS) %:")
     print((windfarm_v_rel * U - floris_vels) / (windfarm_v_rel * U) * 100)
-
-    print(powers / 1e6)
 
     # Generate plots
     plt.show()
