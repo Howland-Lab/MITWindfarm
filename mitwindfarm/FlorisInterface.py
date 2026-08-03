@@ -26,7 +26,9 @@ class FlorisCurledWindfarm(BaseWakeModel):
     turbine operation models).
 
     A power law background wind field is assumed, and the FLORIS flow field is used to set the wind
-    speed and turbulence intensity at the reference height. Further, 
+    speed and turbulence intensity at the reference height. Further, all turbines in the farm are
+    assumed to be of the same type and heterogeneous inflows are not supported (errors are raised
+    if these conditions are not met).
     """
 
     solver_kwargs: dict = field(default=None)
@@ -348,7 +350,6 @@ class RotorWrapper(Rotor):
                 self.x0 = x0
                 self.power = power
 
-        x0 = np.array([[0.7]])
         rotor_solution = RotorSolution(
             yaw=np.deg2rad(yaw),
             Cp=None, # Not computed by FLORIS rotor models
