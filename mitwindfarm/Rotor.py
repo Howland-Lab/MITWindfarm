@@ -465,10 +465,10 @@ class UnifiedMomentumTI_x0(UnifiedMomentum):
     """
 
     def __init__(
-        self, beta=0.1403, alpha=2.32, cached=True, v4_correction=1.0, **kwargs
+        self, beta_s=0.1403, alpha=2.32, cached=True, v4_correction=1.0, **kwargs
     ):
         super().__init__(
-            beta=beta, cached=cached, v4_correction=v4_correction, **kwargs
+            beta_s=beta_s, cached=cached, v4_correction=v4_correction, **kwargs
         )
         self.alpha = alpha
 
@@ -490,8 +490,8 @@ class UnifiedMomentumTI(UnifiedMomentum):
     Extends the Unified Momentum Model to include a TI dependence
     as described in Bastankhah and Porté-Agel (2016).
     """
-    def __init__(self, beta=0.1403, alpha=2.32, **kwargs):
-        super().__init__(beta=beta, **kwargs)
+    def __init__(self, beta_s=0.1403, alpha=2.32, **kwargs):
+        super().__init__(beta_s=beta_s, **kwargs)
         self.alpha = alpha
 
     def residual(
