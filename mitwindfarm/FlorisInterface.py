@@ -56,13 +56,13 @@ class FlorisCurledWindfarm(BaseWakeModel):
 
     def _check_valid_turbine_types(self, farm):
         # Require all turbines to be the same type
-        if not np.all(t == farm.turbines[0] for t in farm.turbines):
+        if not np.all([t == farm.turbines[0] for t in farm.turbines]):
             raise NotImplementedError(
                 "Varying turbine models not supported in FlorisCurledWindfarm"
             )
         
     def _check_valid_flow_field(self, flow_field):
-        if flow_field.het_map or flow_field.heterogeneous_inflow_config:
+        if flow_field.het_map is not None or flow_field.heterogeneous_inflow_config is not None:
             raise NotImplementedError(
                 "Heterogeneous inflows are not supported in FlorisCurledWindfarm."
             )
@@ -75,6 +75,11 @@ class FlorisCurledWindfarm(BaseWakeModel):
             operation_model=farm.turbines[0].operation_model,
             power_thrust_table=farm.turbines[0].power_thrust_table,
             rotor_diameter=D,
+            rotor_points=(
+                turbine_grid.x_sorted[0,0],
+                turbine_grid.y_sorted[0,0],
+                turbine_grid.z_sorted[0,0]
+            ),
             air_density=flow_field.air_density,
             tilt_interp=farm.turbines[0].tilt_interp,
             average_method=turbine_grid.average_method,
@@ -156,6 +161,7 @@ class RotorWrapper(Rotor):
         operation_model,
         power_thrust_table,
         rotor_diameter,
+        rotor_points,
         air_density = 1.225,
         tilt_interp = None,
         average_method = "cubic-mean",
@@ -174,6 +180,11 @@ class RotorWrapper(Rotor):
         self.correct_cp_ct_for_tilt = correct_cp_ct_for_tilt
         self.use_floris_tilt = use_floris_tilt
         self.use_TI_term = use_TI_term
+
+        # Unpack and nondimensionalize the rotor points
+        self.rotor_x = (rotor_points[0] - rotor_points[0].mean()) / rotor_diameter
+        self.rotor_y = (rotor_points[1] - rotor_points[1].mean()) / rotor_diameter
+        self.rotor_z = (rotor_points[2] - rotor_points[2].mean()) / rotor_diameter
 
         if "condition_keys" in power_thrust_table:
             self._power_thrust_table_md = copy.deepcopy(power_thrust_table)
@@ -221,7 +232,8 @@ class RotorWrapper(Rotor):
         Note that the value of Ctprime passed will be ignored, as Ctprime is computed 
         during the call based on the evaluated thrust_coefficient
         """
-        Us = windfield.wsp(x, y, z) 
+        Us_grid = windfield.wsp(x + self.rotor_x, y + self.rotor_y, z + self.rotor_z)
+        Us = Us_grid.mean()
         TIs = windfield.TI(x, y, z)
 
         if self.multidimensional_turbine and self.multidim_condition is None:
@@ -229,6 +241,8 @@ class RotorWrapper(Rotor):
                 "A multidimensional turbine is being used, "
                 "but multidimensional condition has not been set."
             )
+
+        # Could query the wind speed at the rotor points, rather than just the hub height
 
         yaw_r = np.deg2rad(yaw)
         if self.correct_cp_ct_for_tilt:
@@ -243,7 +257,7 @@ class RotorWrapper(Rotor):
         # Now, should be able to evaluate the FLORIS operation model (thrust coefficient)?
         Ct = self.operation_model.thrust_coefficient(
             power_thrust_table=self.power_thrust_table,
-            velocities=np.array([[Us]]) * self.Uref,
+            velocities=(Us_grid * self.Uref)[None, None, :, :],
             turbulence_intensities=np.array([[TIs]]),
             air_density=self.air_density,
             yaw_angles=np.array([[yaw]]),
@@ -259,7 +273,7 @@ class RotorWrapper(Rotor):
 
         a = self.operation_model.axial_induction(
             power_thrust_table=self.power_thrust_table,
-            velocities=np.array([[Us]]) * self.Uref,
+            velocities=(Us_grid * self.Uref)[None, None, :, :],
             turbulence_intensities=np.array([[TIs]]),
             air_density=self.air_density,
             yaw_angles=np.array([[yaw]]),
@@ -275,7 +289,7 @@ class RotorWrapper(Rotor):
 
         P = self.operation_model.power(
             power_thrust_table=self.power_thrust_table,
-            velocities=np.array([[Us]]) * self.Uref,
+            velocities=(Us_grid * self.Uref)[None, None, :, :],
             turbulence_intensities=np.array([[TIs]]),
             air_density=self.air_density,
             yaw_angles=np.array([[yaw]]),
@@ -293,12 +307,10 @@ class RotorWrapper(Rotor):
         if self.correct_cp_ct_for_tilt and self.tilt_interp is not None:
             tilt = self.tilt_interp(Us)
 
-        REWS = np.mean(Us)
-        RETI = np.mean(TIs)
         if hasattr(self.operation_model, "near_wake_velocities"):
             u4, v4, w4, x0 = self.operation_model.near_wake_velocities(
                 power_thrust_table=self.power_thrust_table,
-                velocities=np.array([[Us]]) * self.Uref,
+                velocities=(Us_grid * self.Uref)[None, None, :, :],
                 turbulence_intensities=np.array([[TIs]]),
                 air_density=self.air_density,
                 yaw_angles=np.array([[yaw]]),
@@ -354,19 +366,20 @@ class RotorWrapper(Rotor):
                 self.x0 = x0
                 self.power = power
 
+        # Remove null numpy dimensions and return floats as RotorSolution
         rotor_solution = RotorSolution(
             yaw=np.deg2rad(yaw),
             Cp=None, # Not computed by FLORIS rotor models
-            Ct=Ct[0,0] * REWS**2,
+            Ct=Ct[0,0] * Us**2,
             Ctprime=Ctprime[0,0],
-            an=a[0,0] * REWS,
-            u4=u4[0,0] * REWS,
-            v4=v4[0,0] * REWS,
-            REWS=REWS,
+            an=a[0,0] * Us,
+            u4=u4[0,0] * Us,
+            v4=v4[0,0] * Us,
+            REWS=Us,
             tilt=np.deg2rad(tilt) if self.use_floris_tilt else 0.0,
-            w4=w4[0,0] * REWS,
-            TI=RETI,
-            extra=extra(a[0,0], u4[0,0], Ct[0,0], x0[0,0], REWS, P[0,0])
+            w4=w4[0,0] * Us,
+            TI=TIs,
+            extra=extra(a[0,0], u4[0,0], Ct[0,0], x0[0,0], Us, P[0,0])
         )
         return rotor_solution
 
