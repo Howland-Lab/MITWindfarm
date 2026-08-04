@@ -33,6 +33,7 @@ class FlorisCurledWindfarm(BaseWakeModel):
 
     solver_kwargs: dict = field(default=None)
     use_floris_tilt: bool = field(default=True, init=True)
+    use_TI_term: bool = field(default=False, init=True)
 
     def turbine_solve(self, farm, flow_field, grid):
         self._check_valid_turbine_types(farm)
@@ -79,7 +80,8 @@ class FlorisCurledWindfarm(BaseWakeModel):
             average_method=turbine_grid.average_method,
             cubature_weights=grid.cubature_weights,
             correct_cp_ct_for_tilt=farm.turbines[0].correct_cp_ct_for_tilt,
-            use_floris_tilt=self.use_floris_tilt
+            use_floris_tilt=self.use_floris_tilt,
+            use_TI_term=self.use_TI_term,
         )
 
         # Create variables to store turbine outputs, and assign to farm at 
@@ -159,7 +161,8 @@ class RotorWrapper(Rotor):
         average_method = "cubic-mean",
         cubature_weights = None,
         correct_cp_ct_for_tilt = True,
-        use_floris_tilt = True
+        use_floris_tilt = True,
+        use_TI_term = False,
     ):
         self.operation_model = operation_model
         self.power_thrust_table = power_thrust_table
@@ -170,6 +173,7 @@ class RotorWrapper(Rotor):
         self.cubature_weights = cubature_weights
         self.correct_cp_ct_for_tilt = correct_cp_ct_for_tilt
         self.use_floris_tilt = use_floris_tilt
+        self.use_TI_term = use_TI_term
 
         if "condition_keys" in power_thrust_table:
             self._power_thrust_table_md = copy.deepcopy(power_thrust_table)
@@ -317,7 +321,7 @@ class RotorWrapper(Rotor):
             Ct = Ct * np.cos(calc_eff_yaw(yaw_r, tilt_r))
 
             u4, v4, w4, x0 = near_wake_velocities_standin(
-                Ct, Us, yaw_r, tilt_r
+                Ct, Us, yaw_r, tilt_r, TI=TIs if self.use_TI_term else None
             )
         elif isinstance(self.operation_model, SimpleTurbine):
             if yaw_r != 0 or tilt_r != 0:
@@ -327,7 +331,7 @@ class RotorWrapper(Rotor):
                 )
 
             u4, v4, w4, x0 = near_wake_velocities_standin(
-                Ct, Us, 0.0, 0.0
+                Ct, Us, 0.0, 0.0, TI=TIs if self.use_TI_term else None
             )
         else:
             raise NotImplementedError(
@@ -366,7 +370,7 @@ class RotorWrapper(Rotor):
         )
         return rotor_solution
 
-def near_wake_velocities_standin(Ct, Us, yaw_r, tilt_r):
+def near_wake_velocities_standin(Ct, Us, yaw_r, tilt_r, TI=None):
 
     yaw_r_eff = calc_eff_yaw(yaw_r, tilt_r)
 
@@ -378,9 +382,10 @@ def near_wake_velocities_standin(Ct, Us, yaw_r, tilt_r):
     a = 1 + 0.5 * (Ct * Us)/(u4 - Us)
 
     beta = 0.1403
+    alpha = 2.32 # If this term isn't to be used, pass TI = None
     x0 = (
-        np.cos(yaw_r_eff) / (2*beta)
-        * (Us + u4) / np.abs(Us - u4)
+        (np.cos(yaw_r_eff) * (Us + u4)) /
+        ((2*beta) * np.abs(Us - u4) + 4 * alpha * (TI if TI is not None else 0.0))
         * np.sqrt(((1 - a) * np.cos(yaw_r_eff) * Us)/(Us + u4))
     )
 

@@ -16,6 +16,7 @@ if __name__ == "__main__":
     cmap_floris = "pink"
     use_parallel_model = False
     tilt_rotor_in_wake_model = True
+    add_alpha_TI_term_to_x0_calc = False
 
     rotation_angle = -5
 
@@ -74,11 +75,12 @@ if __name__ == "__main__":
     # Assign MITWindfarm wake model
     fmodel.set_wake_model(FlorisCurledWindfarm(
         solver_kwargs=solver_kwargs,
-        use_floris_tilt=tilt_rotor_in_wake_model
+        use_floris_tilt=tilt_rotor_in_wake_model,
+        use_TI_term=add_alpha_TI_term_to_x0_calc,
     ))
 
     # Assign MITRotor rotor model
-    fmodel.set_operation_model(MITRotorTurbine())
+    #fmodel.set_operation_model(MITRotorTurbine())
 
     # Run FLORIS using MITWindfarm wake model/solver, get turbine powers
     fmodel.run()
