@@ -80,54 +80,15 @@ def test_user_flags():
     fmodel = _setup_basic_floris_model()
 
     # Tilt flag behavior
-    fmodel.set_wake_model(FlorisCurledWindfarm(use_floris_tilt=True, use_TI_term=False))
+    fmodel.set_wake_model(FlorisCurledWindfarm(use_floris_tilt=True))
     fmodel.run()
     powers_tilted = fmodel.get_turbine_powers()
-    fmodel.set_wake_model(FlorisCurledWindfarm(use_floris_tilt=False, use_TI_term=False))
+    fmodel.set_wake_model(FlorisCurledWindfarm(use_floris_tilt=False))
     fmodel.run()
     powers_not_tilted = fmodel.get_turbine_powers()
 
     # Freestream turbines produce more power when not tilted
     assert powers_tilted[0,0] < powers_not_tilted[0,0]
-
-    # TI term flag behavior
-    fmodel.set_wake_model(FlorisCurledWindfarm(use_floris_tilt=False, use_TI_term=False))
-    fmodel.run()
-    powers_no_TI_term_const = fmodel.get_turbine_powers()
-    
-    fmodel.set_wake_model(FlorisCurledWindfarm(use_floris_tilt=False, use_TI_term=True))
-    fmodel.run()
-    powers_TI_term_const = fmodel.get_turbine_powers()
-
-    # Default "const" k_model does not account for x0, so unaffected
-    assert np.allclose(powers_TI_term_const, powers_no_TI_term_const)
-
-
-    # Adding TI term shortens the near wake and promotes faster recovery, so downstream turbines
-    # should produce more power when TI term is used
-    fmodel.set_wake_model(FlorisCurledWindfarm(
-        solver_kwargs={"k_model": "k-l"},
-        use_floris_tilt=False,
-        use_TI_term=False,
-    ))
-    fmodel.run()
-    powers_no_TI_term = fmodel.get_turbine_powers()
-
-    fmodel.set_wake_model(FlorisCurledWindfarm(
-        solver_kwargs={"k_model": "k-l"},
-        use_floris_tilt=False,
-        use_TI_term=True,
-    ))
-    fmodel.run()
-    powers_TI_term = fmodel.get_turbine_powers()
-
-
-    # Freestream turbines unaffected by TI term
-    assert np.isclose(powers_TI_term[0,0], powers_no_TI_term[0,0])
-    assert np.allclose(powers_TI_term[1,:], powers_no_TI_term[1,:])
-
-    # Second turbine produces more power when TI term is used
-    assert powers_TI_term[0,1] > powers_no_TI_term[0,1]
 
 def test_raises_errors():
     fmodel = _setup_basic_floris_model()

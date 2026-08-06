@@ -33,7 +33,6 @@ class FlorisCurledWindfarm(BaseWakeModel):
 
     solver_kwargs: dict = field(default=None)
     use_floris_tilt: bool = field(default=True, init=True)
-    use_TI_term: bool = field(default=False, init=True)
 
     def turbine_solve(self, farm, flow_field, grid):
         self._check_valid_turbine_types(farm)
@@ -86,7 +85,6 @@ class FlorisCurledWindfarm(BaseWakeModel):
             cubature_weights=grid.cubature_weights,
             correct_cp_ct_for_tilt=farm.turbines[0].correct_cp_ct_for_tilt,
             use_floris_tilt=self.use_floris_tilt,
-            use_TI_term=self.use_TI_term,
         )
 
         # Create variables to store turbine outputs, and assign to farm at 
@@ -168,7 +166,6 @@ class RotorWrapper(Rotor):
         cubature_weights = None,
         correct_cp_ct_for_tilt = True,
         use_floris_tilt = True,
-        use_TI_term = False,
     ):
         self.operation_model = operation_model
         self.power_thrust_table = power_thrust_table
@@ -179,7 +176,6 @@ class RotorWrapper(Rotor):
         self.cubature_weights = cubature_weights
         self.correct_cp_ct_for_tilt = correct_cp_ct_for_tilt
         self.use_floris_tilt = use_floris_tilt
-        self.use_TI_term = use_TI_term
 
         # Unpack and nondimensionalize the rotor points
         self.rotor_x = (rotor_points[0] - rotor_points[0].mean()) / rotor_diameter
@@ -332,9 +328,7 @@ class RotorWrapper(Rotor):
             # Add second cosine term, as not done in CosineLoss model
             Ct = Ct * np.cos(calc_eff_yaw(yaw_r, tilt_r))
 
-            u4, v4, w4, x0 = near_wake_velocities_standin(
-                Ct, Us, yaw_r, tilt_r, TI=TIs if self.use_TI_term else None
-            )
+            u4, v4, w4 = near_wake_velocities_standin(Ct, Us, yaw_r, tilt_r)
         elif isinstance(self.operation_model, SimpleTurbine):
             if yaw_r != 0 or tilt_r != 0:
                 raise NotImplementedError(
@@ -342,9 +336,7 @@ class RotorWrapper(Rotor):
                     "Cannot compute near wake velocities. Consider using CosineLossTurbine instead."
                 )
 
-            u4, v4, w4, x0 = near_wake_velocities_standin(
-                Ct, Us, 0.0, 0.0, TI=TIs if self.use_TI_term else None
-            )
+            u4, v4, w4 = near_wake_velocities_standin(Ct, Us, 0.0, 0.0)
         else:
             raise NotImplementedError(
                 "The operation model does not have a near_wake_velocities method, and is not a" \
@@ -359,11 +351,11 @@ class RotorWrapper(Rotor):
             Small class to return normalized values for axial induction and u4.
             Also used to store turbine power so that it can be passed back to FLORIS.
             """
-            def __init__(self, a, u4, Ct, x0, REWS, power):
+            def __init__(self, a, u4, Ct, REWS, power):
                 self.an = a
                 self.Ct = Ct
                 self.u4 = u4 / REWS
-                self.x0 = x0
+                self.x0 = None # Computed within CurledWindfarm solve
                 self.power = power
 
         # Remove null numpy dimensions and return floats as RotorSolution
@@ -379,11 +371,11 @@ class RotorWrapper(Rotor):
             tilt=np.deg2rad(tilt) if self.use_floris_tilt else 0.0,
             w4=w4[0,0] * Us,
             TI=TIs,
-            extra=extra(a[0,0], u4[0,0], Ct[0,0], x0[0,0], Us, P[0,0])
+            extra=extra(a[0,0], u4[0,0], Ct[0,0], Us, P[0,0])
         )
         return rotor_solution
 
-def near_wake_velocities_standin(Ct, Us, yaw_r, tilt_r, TI=None):
+def near_wake_velocities_standin(Ct, Us, yaw_r, tilt_r):
 
     yaw_r_eff = calc_eff_yaw(yaw_r, tilt_r)
 
@@ -392,17 +384,7 @@ def near_wake_velocities_standin(Ct, Us, yaw_r, tilt_r, TI=None):
     v4 = - (1/4) * Ct * np.sin(yaw_r_eff) * Us
     w4 = 0.0
 
-    a = 1 + 0.5 * (Ct * Us)/(u4 - Us)
-
-    beta = 0.1403
-    alpha = 2.32 # If this term isn't to be used, pass TI = None
-    x0 = (
-        (np.cos(yaw_r_eff) * (Us + u4)) /
-        ((2*beta) * np.abs(Us - u4) + 4 * alpha * (TI if TI is not None else 0.0))
-        * np.sqrt(((1 - a) * np.cos(yaw_r_eff) * Us)/(Us + u4))
-    )
-
     # Convert to global frame of reference
     u4, v4, w4 = eff_yaw_inv_rotation(u4, v4, w4, yaw_r_eff, yaw_r, tilt_r)
 
-    return u4, v4, w4, x0
+    return u4, v4, w4

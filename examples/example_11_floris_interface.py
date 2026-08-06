@@ -117,7 +117,6 @@ def run_model_comparison(yaw_angle=0.0, tilt=False):
     fmodel.set_wake_model(FlorisCurledWindfarm(
         solver_kwargs=solver_kwargs,
         use_floris_tilt=tilt,
-        use_TI_term=True,
     ))
     fmodel.run()
     powers_cwf = fmodel.get_turbine_powers()

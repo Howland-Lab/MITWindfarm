@@ -30,6 +30,7 @@ import warnings
 
 import numpy as np
 from UnifiedMomentumModel.Momentum import Heck, UnifiedMomentum, MomentumSolution
+from UnifiedMomentumModel.Utilities.Geometry import calc_eff_yaw
 from MITRotor import BEM as _BEM
 from MITRotor import BEMSolution, RotorDefinition
 from .Windfield import Windfield
@@ -560,3 +561,24 @@ class UnifiedMomentumTI(UnifiedMomentum):
         ) - dp
 
         return e_an, e_u4, e_v4, e_x0, e_dp
+
+def compute_x0_with_TI(rotor_solution: RotorSolution, alpha=2.32, beta=0.1403):
+
+    # Extract rotor effective wind speed and thrust coefficient for ease of use
+    Us = rotor_solution.REWS # TODO: Do we need this?
+    # Use "extra" version of Ct, as this one has not been scaled by velocity squared
+    Ct = rotor_solution.extra.Ct
+
+    # Recompute induction quantities in rotated frame of reference
+    yaw_eff = calc_eff_yaw(rotor_solution.yaw, rotor_solution.tilt)
+    u4 = Us * np.sqrt(1 - 1/16 * Ct**2 * np.sin(yaw_eff)**2 - Ct)
+    a = 1 + 0.5 * (Ct * Us)/(u4 - Us)
+
+    # Compute near wake length x0
+    x0 = (
+        (np.cos(yaw_eff) * (Us + u4)) /
+        ((2*beta) * np.abs(Us - u4) + 4 * alpha * rotor_solution.TI)
+        * np.sqrt(((1 - a) * np.cos(yaw_eff) * Us)/(Us + u4))
+    )
+
+    return x0
