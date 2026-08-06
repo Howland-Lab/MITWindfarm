@@ -565,7 +565,7 @@ class UnifiedMomentumTI(UnifiedMomentum):
 def compute_x0_with_TI(rotor_solution: RotorSolution, alpha=2.32, beta=0.1403):
 
     # Extract rotor effective wind speed and thrust coefficient for ease of use
-    Us = rotor_solution.REWS # TODO: Do we need this?
+    Us = rotor_solution.REWS
     # Use "extra" version of Ct, as this one has not been scaled by velocity squared
     Ct = rotor_solution.extra.Ct
 

@@ -9,6 +9,7 @@ The example compares the results of simulating a wind farm using:
 
 Additionally, the example demonstrates how to set yaw and tilt angles for the turbines in the farm.
 """
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -19,6 +20,9 @@ from floris.layout_visualization import plot_turbine_rotors
 from mitwindfarm import FlorisCurledWindfarm, Layout, Plotting, PowerLaw
 from mitwindfarm.Rotor import UnifiedAD_TI
 from mitwindfarm.windfarm import CurledWindfarm
+
+FIGDIR = Path(__file__).parent.parent / "fig"
+FIGDIR.mkdir(exist_ok=True, parents=True)
 
 def run_model_comparison(yaw_angle=0.0, tilt=False):
 
@@ -36,7 +40,10 @@ def run_model_comparison(yaw_angle=0.0, tilt=False):
     TI = 0.06
     U = 8.0
     rotation_angle = -5 # First wind direction is 270; second is 270 + rotation_angle
-    
+
+    # Create figure for placing plots
+    fig, axes = plt.subplots(2, 3, figsize=(15, 5))
+    fig.suptitle(f"Wind farm comparison: yaw={yaw_angle} deg, tilt={tilt}")
 
     # CurledWindfarm parameters
     layout = Layout([0, 12 / 2, 24 / 2], [0, 0, 0], [0, 0, 0])
@@ -66,10 +73,9 @@ def run_model_comparison(yaw_angle=0.0, tilt=False):
     windfarm_sol = windfarm(layout, setpoints)
     windfarm_sol_rotated = windfarm(layout.rotate(rotation_angle), setpoints)
 
-    fig, axes_windfarm = plt.subplots(2)
-    Plotting.plot_windfarm(windfarm_sol, axes_windfarm[0], vmin=0, vmax=2)
-    Plotting.plot_windfarm(windfarm_sol_rotated, axes_windfarm[1], vmin=0, vmax=2)
-    axes_windfarm[0].scatter(samples_x/D, samples_y/D, color="k", marker=".")
+    Plotting.plot_windfarm(windfarm_sol, axes[0, 0], vmin=0, vmax=2) # Left plots
+    Plotting.plot_windfarm(windfarm_sol_rotated, axes[1, 0], vmin=0, vmax=2)
+    axes[0, 0].scatter(samples_x/D, samples_y/D, color="k", marker=".")
 
     windfarm_sol = windfarm(layout, setpoints)
     windfarm_v_rel = windfarm_sol.windfield.wsp(samples_x/D, samples_y/D, (samples_z-H)/D)
@@ -85,8 +91,8 @@ def run_model_comparison(yaw_angle=0.0, tilt=False):
         + (samples_x/D - 6) * np.sin(np.radians(rotation_angle))
         + 0
     )
-    axes_windfarm[1].scatter(rotated_x, rotated_y, color="k", marker=".")
-    fig.suptitle("Direct CurledWindfarm call")
+    axes[1, 0].scatter(rotated_x, rotated_y, color="k", marker=".")
+    axes[0, 0].set_title("Direct CurledWindfarm call")
 
     windfarm_v_rel_rot = windfarm_sol_rotated.windfield.wsp(rotated_x, rotated_y, (samples_z-H)/D)
     windfarm_v_rel = np.vstack([windfarm_v_rel, windfarm_v_rel_rot])
@@ -110,7 +116,8 @@ def run_model_comparison(yaw_angle=0.0, tilt=False):
     fmodel.run()
     powers_gauss = fmodel.get_turbine_powers()
     floris_visualization(
-        fmodel, H, rotation_angle, samples_x, samples_y, "FLORIS Gauss wake model"
+        fmodel, H, rotation_angle, samples_x, samples_y, "FLORIS Gauss wake model",
+        axes[0, 2], axes[1, 2] # Right plots
     )
 
     # Assign MITWindfarm wake model, rerun
@@ -121,7 +128,8 @@ def run_model_comparison(yaw_angle=0.0, tilt=False):
     fmodel.run()
     powers_cwf = fmodel.get_turbine_powers()
     floris_visualization(
-        fmodel, H, rotation_angle, samples_x, samples_y, "CurledWindfarm via FLORIS"
+        fmodel, H, rotation_angle, samples_x, samples_y, "CurledWindfarm via FLORIS",
+        axes[0, 1], axes[1, 1] # Middle plots
     )
     floris_vels = fmodel.sample_flow_at_points(samples_x, samples_y, samples_z)
 
@@ -137,20 +145,24 @@ def run_model_comparison(yaw_angle=0.0, tilt=False):
     print("\nFLORIS CurledWindfarm turbine powers [MW]:")
     print(powers_cwf / 1e6)
 
-def floris_visualization(fmodel, H, rotation_angle, samples_x, samples_y, title):
+    tilt_append = "_tilt" if tilt else ""
+    fig.savefig(
+        FIGDIR / f"{Path(__file__).stem}_yaw_{yaw_angle}{tilt_append}.png", bbox_inches="tight"
+    )
+
+def floris_visualization(fmodel, H, rotation_angle, samples_x, samples_y, title, ax0, ax1):
     cmap_floris = "pink"
     # Extracting and plotting FLORIS results
-    fig, axes_floris = plt.subplots(2)
     horizontal_plane = fmodel.calculate_horizontal_plane(
         x_resolution=200,
         y_resolution=100,
         height=H,
         findex_for_viz=0,
     )
-    plot_turbine_rotors(fmodel, ax=axes_floris[0])
+    plot_turbine_rotors(fmodel, ax=ax0)
     visualize_cut_plane(
         horizontal_plane,
-        ax=axes_floris[0],
+        ax=ax0,
         cmap=cmap_floris,
         clevels=100,
         levels=[],
@@ -162,19 +174,19 @@ def floris_visualization(fmodel, H, rotation_angle, samples_x, samples_y, title)
         findex_for_viz=1,
     )
     plot_turbine_rotors(
-        fmodel, ax=axes_floris[1], yaw_angles=[-rotation_angle]*len(fmodel.layout_x)
+        fmodel, ax=ax1, yaw_angles=[-rotation_angle]*len(fmodel.layout_x)
     )
     visualize_cut_plane(
         horizontal_plane,
-        ax=axes_floris[1],
+        ax=ax1,
         cmap=cmap_floris,
         clevels=100,
         levels=[],
     )
 
-    axes_floris[0].scatter(samples_x, samples_y, color="k", marker=".")
-    axes_floris[1].scatter(samples_x, samples_y, color="k", marker=".")
-    fig.suptitle(title)
+    ax0.scatter(samples_x, samples_y, color="k", marker=".")
+    ax1.scatter(samples_x, samples_y, color="k", marker=".")
+    ax0.set_title(title)
 
 
 if __name__ == "__main__":
@@ -188,4 +200,4 @@ if __name__ == "__main__":
     # Include yaw and tilt
     print("\n\n"+"="*30+"\nYawed 25 degrees, include tilt\n"+"="*30)
     run_model_comparison(yaw_angle=25.0, tilt=True)
-    plt.show()
+    plt.close()
