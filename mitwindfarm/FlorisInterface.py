@@ -304,7 +304,7 @@ class RotorWrapper(Rotor):
             tilt = self.tilt_interp(Us)
 
         if hasattr(self.operation_model, "near_wake_velocities"):
-            u4, v4, w4, x0 = self.operation_model.near_wake_velocities(
+            u4, v4, w4 = self.operation_model.near_wake_velocities(
                 power_thrust_table=self.power_thrust_table,
                 velocities=(Us_grid * self.Uref)[None, None, :, :],
                 turbulence_intensities=np.array([[TIs]]),
