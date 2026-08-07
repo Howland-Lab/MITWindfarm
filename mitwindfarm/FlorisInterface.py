@@ -354,7 +354,7 @@ class RotorWrapper(Rotor):
             def __init__(self, a, u4, Ct, REWS, power):
                 self.an = a
                 self.Ct = Ct
-                self.u4 = u4 / REWS
+                self.u4 = u4 / REWS # Non-dimensional version
                 self.x0 = None # Computed within CurledWindfarm solve
                 self.power = power
 
@@ -365,11 +365,11 @@ class RotorWrapper(Rotor):
             Ct=Ct[0,0] * Us**2,
             Ctprime=Ctprime[0,0],
             an=a[0,0] * Us,
-            u4=u4[0,0] * Us,
-            v4=v4[0,0] * Us,
+            u4=u4[0,0],
+            v4=v4[0,0],
             REWS=Us,
             tilt=np.deg2rad(tilt) if self.use_floris_tilt else 0.0,
-            w4=w4[0,0] * Us,
+            w4=w4[0,0],
             TI=TIs,
             extra=extra(a[0,0], u4[0,0], Ct[0,0], Us, P[0,0])
         )
