@@ -380,7 +380,7 @@ def near_wake_velocities_standin(Ct, Us, yaw_r, tilt_r):
     yaw_r_eff = calc_eff_yaw(yaw_r, tilt_r)
 
     # In rotated frame of reference
-    u4 = Us * np.sqrt(1 - 1/16 * Ct**2 * np.sin(yaw_r_eff)**2 - Ct)
+    u4 = np.sqrt(1 - 1/16 * Ct**2 * np.sin(yaw_r_eff)**2 - Ct) * Us
     v4 = - (1/4) * Ct * np.sin(yaw_r_eff) * Us
     w4 = 0.0
 

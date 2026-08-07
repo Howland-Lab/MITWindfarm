@@ -564,17 +564,15 @@ class UnifiedMomentumTI(UnifiedMomentum):
 
 def compute_x0_with_TI(rotor_solution: RotorSolution, alpha=2.32, beta=0.1403):
 
-    # Extract rotor effective wind speed and thrust coefficient for ease of use
+    # Extract quantities from rotor solution for ease of use and documentation
     Us = rotor_solution.REWS
-    # Use "extra" version of Ct, as this one has not been scaled by velocity squared
-    Ct = rotor_solution.extra.Ct
+    a = rotor_solution.extra.an # HAS NOT been scaled by velocity
+    u4 = rotor_solution.u4 # HAS been scaled by velocity
 
-    # Recompute induction quantities in rotated frame of reference
+    # Convert yaw, tilt to rotated frame of reference
     yaw_eff = calc_eff_yaw(rotor_solution.yaw, rotor_solution.tilt)
-    u4 = Us * np.sqrt(1 - 1/16 * Ct**2 * np.sin(yaw_eff)**2 - Ct)
-    a = 1 + 0.5 * (Ct * Us)/(u4 - Us)
 
-    # Compute near wake length x0
+    # Compute near wake length x0 and return
     x0 = (
         (np.cos(yaw_eff) * (Us + u4)) /
         ((2*beta) * np.abs(Us - u4) + 4 * alpha * rotor_solution.TI)
