@@ -575,7 +575,7 @@ def compute_x0_with_TI(rotor_solution: RotorSolution, alpha=2.32, beta=0.1403):
     # Compute near wake length x0 and return
     x0 = (
         (np.cos(yaw_eff) * (Us + u4)) /
-        ((2*beta) * np.abs(Us - u4) + 4 * alpha * rotor_solution.TI)
+        ((2*beta_s) * np.abs(Us - u4) + 4 * alpha * rotor_solution.TI)
         * np.sqrt(((1 - a) * np.cos(yaw_eff) * Us)/(Us + u4))
     )
 
