@@ -236,7 +236,7 @@ class UnifiedAD_TI(UnifiedAD):
         """
         super().__init__(rotor_grid=rotor_grid)
         if couple_x0:
-            self._model = UnifiedMomentumTI(beta=beta, alpha=alpha)
+            self._model = UnifiedMomentumTI(beta_s=beta, alpha=alpha)
         else:
             self._model = UnifiedMomentumTI_x0(beta_s=beta, alpha=alpha)
 
