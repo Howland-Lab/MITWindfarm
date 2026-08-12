@@ -183,7 +183,7 @@ class UnifiedAD(Rotor):
             self.rotor_grid = Point()
         else:
             self.rotor_grid = rotor_grid
-        self._model = UnifiedMomentum(beta=beta)
+        self._model = UnifiedMomentum(beta_s=beta)
 
     def __call__(self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw = 0, tilt = 0) -> RotorSolution:
         """
