@@ -11,6 +11,10 @@ numpy = "^2.1.1"
 scipy = ">=1.6"
 mitrotor = { git = "https://github.com/Howland-Lab/MITRotor.git"}
 unified-momentum-model = { git = "https://github.com/Howland-Lab/Unified-Momentum-Model.git"}
+[tool.poetry.group.floris]
+optional = true
+
+[tool.poetry.group.floris.dependencies]
 floris = { git = "https://github.com/NatLabRockies/floris.git", branch = "dev/v5-beta"}
 
 # [tool.poetry.group.dev.dependencies]
