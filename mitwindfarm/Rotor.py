@@ -238,7 +238,7 @@ class UnifiedAD_TI(UnifiedAD):
         if couple_x0:
             self._model = UnifiedMomentumTI(beta=beta, alpha=alpha)
         else:
-            self._model = UnifiedMomentumTI_x0(beta=beta, alpha=alpha)
+            self._model = UnifiedMomentumTI_x0(beta_s=beta, alpha=alpha)
 
     def __call__(
         self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw = 0, tilt = 0,
