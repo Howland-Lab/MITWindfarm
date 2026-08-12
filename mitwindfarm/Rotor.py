@@ -562,7 +562,7 @@ class UnifiedMomentumTI(UnifiedMomentum):
 
         return e_an, e_u4, e_v4, e_x0, e_dp
 
-def compute_x0_with_TI(rotor_solution: RotorSolution, alpha=2.32, beta=0.1403):
+def compute_x0_with_TI(rotor_solution: RotorSolution, alpha=2.32, beta_s=0.1403):
 
     # Extract quantities from rotor solution for ease of use and documentation
     Us = rotor_solution.REWS
