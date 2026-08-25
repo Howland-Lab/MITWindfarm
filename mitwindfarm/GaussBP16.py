@@ -76,8 +76,6 @@ class GaussBPWakeModel(WakeModel):
         - Returns:
             - BP2016Wake instance with the specified parameters.
         """
-        Ct = rotor_sol.Ct
-        x0 = 0.2 * np.sqrt(0.5 * (1 + np.sqrt(1 - Ct)) / np.sqrt(1 - Ct)) / self.kw
         return BP2016Wake(
             x,
             y,
@@ -86,7 +84,83 @@ class GaussBPWakeModel(WakeModel):
             ky=self.kw,
             kz=self.kw,
             TI=rotor_sol.TI,  # deprecate TIamb argument
-            x0=rotor_sol.extra.x0 if self.couple_rotor_x0 else x0,
+            # x0=None lets BP2016Wake compute the near-wake length from eq. 7.3
+            # (TI/Ct-based); couple_rotor_x0 overrides with the momentum solver's x0.
+            x0=rotor_sol.extra.x0 if self.couple_rotor_x0 else self.x0,
+            theta0=None,
+            astar=self.astar,
+            bstar=self.bstar,
+            d=self.R * 2,
+        )
+
+
+class VariableKwGaussBPWakeModel(GaussBPWakeModel):
+    """
+    Gaussian wake model based on Bastankhah and Porte-Agel (2016) which adjusts
+    the wake spreading rate (kw) based on the TI and Ctprime experienced by the
+    wake-generating turbine.
+
+    Follows the linear relation:
+
+    kw = a * TI + b * Ctprime + c
+
+    where coefficients a, b, and c are provided at initialization. Defaults
+    reproduce the Niayifar and Porte-Agel (2016) calibration kw = 0.3837 * TI
+    + 0.003678, also used as the default for VariableVortexWakeModel.
+
+    __init__:
+        - Args
+            - a: float, TI dependence on kw (default: 0.3837)
+            - b: float, Ctprime dependence on kw (default: 0.0)
+            - c: float, constant offset on kw (default: 0.003678)
+            - R: float, rotor radius (default: 0.5)
+            - windfield: windfield for veer deformation (default: None)
+            - couple_rotor_x0: bool, whether to couple near-wake length to rotor (default: False)
+            - x0: float, near-wake length. Used if couple_rotor_x0 is False (default: None)
+            - astar: float, x0 tuning parameter alpha* (default: 2.32)
+            - bstar: float, x0 tuning parameter beta* (default: 0.154)
+    """
+
+    def __init__(
+        self,
+        a: float = 0.3837,
+        b: float = 0.0,
+        c: float = 0.003678,
+        R: float = 0.5,
+        windfield: Optional["Windfield"] = None,
+        couple_rotor_x0: bool = False,
+        x0: float = None,
+        astar: float = 2.32,
+        bstar: float = 0.154,
+    ):
+        super().__init__(
+            kw=None,
+            R=R,
+            windfield=windfield,
+            couple_rotor_x0=couple_rotor_x0,
+            x0=x0,
+            astar=astar,
+            bstar=bstar,
+        )
+        self.a = a
+        self.b = b
+        self.c = c
+
+    def __call__(
+        self, x, y, z, rotor_sol: "RotorSolution", TIamb: float = None
+    ) -> "BP2016Wake":
+        kw = self.a * rotor_sol.TI + self.b * rotor_sol.Ctprime + self.c
+        return BP2016Wake(
+            x,
+            y,
+            z,
+            rotor_sol,
+            ky=kw,
+            kz=kw,
+            TI=rotor_sol.TI,
+            # x0=None lets BP2016Wake compute the near-wake length from eq. 7.3
+            # (TI/Ct-based); couple_rotor_x0 overrides with the momentum solver's x0.
+            x0=rotor_sol.extra.x0 if self.couple_rotor_x0 else self.x0,
             theta0=None,
             astar=self.astar,
             bstar=self.bstar,
@@ -170,7 +244,6 @@ class BP2016Wake(Wake):
         """
         x0 = self.d * np.cos(self.yaw) * (1 + np.sqrt(1 - self.ct)) / \
             (np.sqrt(2) * (self.astar * self.TIamb + self.bstar * (1 - np.sqrt(1 - self.ct))))
-        print(x0, self.ct, self.astar, self.TIamb, self.bstar)
         return x0
 
     def sigma_y(
