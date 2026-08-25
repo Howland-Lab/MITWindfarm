@@ -32,6 +32,7 @@ import warnings
 import numpy as np
 from scipy.optimize import root
 from UnifiedMomentumModel.Momentum import Heck, UnifiedMomentum, MomentumSolution
+from UnifiedMomentumModel.Utilities.Geometry import calc_eff_yaw
 from MITRotor import BEM as _BEM
 from MITRotor import BEMSolution, RotorDefinition
 from .Windfield import Windfield
@@ -159,7 +160,7 @@ class UnifiedAD(Rotor):
     __init__:
         - Args:
             - rotor_grid (RotorGrid, optional): grid points over the rotor
-            - beta_s (float, optional): shear layer growth parameter.
+            - beta (float, optional): shear layer growth parameter.
                 Default is 0.1403 (from Liew et al. 2024).
         - Returns:
             - UnifiedAD object
@@ -176,7 +177,7 @@ class UnifiedAD(Rotor):
             >>> rotor_model(1.33, 0, np.deg2rad(-15))
     """
 
-    def __init__(self, rotor_grid: RotorGrid = None, beta_s=0.1403):
+    def __init__(self, rotor_grid: RotorGrid = None, beta=0.1403):
         """
         Initialize the UnifiedAD rotor model.
         See above class documentation on __init__ for more details.
@@ -185,7 +186,7 @@ class UnifiedAD(Rotor):
             self.rotor_grid = Point()
         else:
             self.rotor_grid = rotor_grid
-        self._model = UnifiedMomentum(beta_s=beta_s)
+        self._model = UnifiedMomentum(beta_s=beta)
 
     def __call__(self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw = 0, tilt = 0) -> RotorSolution:
         """
@@ -243,20 +244,20 @@ class UnifiedAD_TI(UnifiedAD):
 
     """
 
-    def __init__(self, rotor_grid=None, beta_s=0.1403, alpha=2.0, couple_x0=False):
+    def __init__(self, rotor_grid=None, beta=0.1403, alpha=2.0, couple_x0=False):
         """
         Initialize the UnifiedAD rotor model given shear layer growth parameters alpha, beta.
 
         Parameters:
-        - beta_s (float): shear layer growth parameter (default is 0.1403, from Liew et al. 2024).
+        - beta (float): shear layer growth parameter (default is 0.1403, from Liew et al. 2024).
         - alpha (float): Turbulence intensity factor (default is 2.0, from Heck and Howland, 2026).
         - couple_x0 (bool): If True, couples the x0 parameter to the pressure equation. Default is False.
         """
         super().__init__(rotor_grid=rotor_grid)
         if couple_x0:
-            self._model = UnifiedMomentumTI(beta_s=beta_s, alpha=alpha)
+            self._model = UnifiedMomentumTI(beta_s=beta, alpha=alpha)
         else:
-            self._model = UnifiedMomentumTI_x0(beta_s=beta_s, alpha=alpha)
+            self._model = UnifiedMomentumTI_x0(beta_s=beta, alpha=alpha)
 
 
 class BEM(Rotor):
@@ -587,17 +588,17 @@ class UnifiedAD_veer(UnifiedAD):
     Same as UnifiedAD but also accounts for a possible dependence on veer and inflow TI. 
     """
 
-    def __init__(self, rotor_grid=None, beta_s=0.1403, alpha=2.0):
+    def __init__(self, rotor_grid=None, beta=0.1403, alpha=2.0):
         """
         Initialize the UnifiedAD rotor model.
 
         Parameters:
-        - beta_s (float): shear layer growth parameter (default is 0.1403).
+        - beta (float): shear layer growth parameter (default is 0.1403).
         - alpha (float): Turbulence intensity factor (default is 2.0, 
             which is alpha^* from Bastankhah and Porté-Agel 2016).
         """
         super().__init__(rotor_grid=rotor_grid)
-        self._model = UnifiedMomentum_veer(beta_s=beta_s, alpha=alpha)
+        self._model = UnifiedMomentum_veer(beta_s=beta, alpha=alpha)
 
     def __call__(
         self, x: float, y: float, z: float, windfield: Windfield, Ctprime, yaw=0, tilt=0
@@ -763,3 +764,23 @@ def x0_model(u4, an, yaw=0, veer=0, TI=0, alpha=2.0, beta_s=0.1403):
 
     f = np.vectorize(x0_model_scalar)
     return f(u4, an, yaw=yaw, veer=veer, TI=TI, alpha=alpha, beta_s=beta_s)
+
+
+def compute_x0_with_TI(rotor_solution: RotorSolution, alpha=2.0, beta_s=0.1403):
+
+    # Extract quantities from rotor solution for ease of use and documentation
+    Us = rotor_solution.REWS
+    a = rotor_solution.extra.an # HAS NOT been scaled by velocity
+    u4 = rotor_solution.u4 # HAS been scaled by velocity
+
+    # Convert yaw, tilt to rotated frame of reference
+    yaw_eff = calc_eff_yaw(rotor_solution.yaw, rotor_solution.tilt)
+
+    # Compute near wake length x0 and return
+    x0 = (
+        (np.cos(yaw_eff) * (Us + u4)) /
+        ((2*beta_s) * np.abs(Us - u4) + 4 * alpha * rotor_solution.TI)
+        * np.sqrt(((1 - a) * np.cos(yaw_eff) * Us)/(Us + u4))
+    )
+
+    return x0

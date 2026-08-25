@@ -64,9 +64,9 @@ if __name__ == "__main__":
 
     fig.suptitle("$C_P$ for Equivalent Turbine Setups", size = 16)
     deg_yaw_tilt, deg_eff_yaw = np.rad2deg(yaw_tilt_val), np.rad2deg(eff_yaw)
-    axes[0, 0].set_title(f"Yaw {np.round(deg_eff_yaw, decimals=1)}$^\circ$\n$C_P$: {yaw_sol.Cp:2.3f}")
-    axes[0, 1].set_title(f"Tilt {np.round(deg_eff_yaw, decimals=1)}$^\circ$\n$C_P$: {tilt_sol.Cp:2.3f}")
-    axes[0, 2].set_title(f"Yaw {np.round(deg_yaw_tilt, decimals=1)}$^\circ$ & Tilt {np.round(deg_yaw_tilt, decimals=1)}$^\circ$\n$C_P$: {yaw_and_tilt_sol.Cp:2.3f}")
+    axes[0, 0].set_title(f"Yaw {np.round(deg_eff_yaw, decimals=1)}$^\\circ$\n$C_P$: {yaw_sol.Cp:2.3f}")
+    axes[0, 1].set_title(f"Tilt {np.round(deg_eff_yaw, decimals=1)}$^\\circ$\n$C_P$: {tilt_sol.Cp:2.3f}")
+    axes[0, 2].set_title(f"Yaw {np.round(deg_yaw_tilt, decimals=1)}$^\\circ$ & Tilt {np.round(deg_yaw_tilt, decimals=1)}$^\\circ$\n$C_P$: {yaw_and_tilt_sol.Cp:2.3f}")
     plt.tight_layout()
     plt.savefig(
         FIGDIR / "example_10_yaw_tilt_comparison.png", dpi=300, bbox_inches="tight"

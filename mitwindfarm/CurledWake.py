@@ -18,7 +18,7 @@ from scipy.special import erf
 from scipy.integrate import trapezoid
 
 from mitwindfarm.Windfield import Windfield
-from mitwindfarm.Rotor import RotorSolution
+from mitwindfarm.Rotor import RotorSolution, compute_x0_with_TI
 from mitwindfarm.utils.integrate import (
     Integrator,
     IntegrationException,
@@ -1722,25 +1722,13 @@ def get_heaviside(x, yax, turbines, use_constant_x0=None):
         if use_constant_x0 is not None:
             x0 = use_constant_x0
         else:
-            x0 = (
-                t.rotor_solution.extra.x0
-                if hasattr(t.rotor_solution.extra, "x0")
-                else np.inf
-            )
-            if x0 == np.inf:
-                raise ValueError(
-                    "Rotor has no `x0` value defined, please provide a value for `use_constant_x0`."
-                )
-        # try:
-        #     x0 = t.rotor_solution.extra.x0
-        #     if x0 == np.inf:
-        #         x0 = default_x0
-        # except AttributeError:
-        #     x0 = default_x0
+            if hasattr(t.rotor_solution.extra, "x0") and t.rotor_solution.extra.x0 < np.inf:
+                x0 = t.rotor_solution.extra.x0
+            else: 
+                x0 = compute_x0_with_TI(t.rotor_solution)
 
         if x >= t.xt and x < t.xt + x0:
-            # yids = (yax >= (t.yt - t.D/2)) & (yax <= (t.yt + t.D/2))
-            # ret[yids] = 1
+            # add lateral gaussian blending
             ret += np.exp(-((yax - t.yt) ** 2) / 2 / (t.D) ** 2)
 
     ret = np.clip(ret, 0, 1)
