@@ -693,7 +693,7 @@ class UnifiedMomentum_veer(UnifiedMomentum):
         return super().post_process(result, Ctprime, yaw=yaw, tilt=tilt)
 
 
-def x0_model_scalar(u4, an, veer=0, TI=0, alpha=2.0, beta_s=0.1403):
+def x0_model_scalar(u4, an, yaw=0, veer=0, TI=0, alpha=2.0, beta_s=0.1403):
     """
     Computes the near-wake length x0 considering veered
     conditions using a skewed ellipse approximation.
@@ -702,9 +702,11 @@ def x0_model_scalar(u4, an, veer=0, TI=0, alpha=2.0, beta_s=0.1403):
     ----------
     u4 : float or array-like
     an : float or array-like
-    veer : float or array-like
+    yaw: float or array-like, optional
+        Yaw angle in radians
+    veer : float or array-like, optional
         Amount of veering in radians per length
-    TI : float or array-like
+    TI : float or array-like, optional
         Turbulence intensity TI = sqrt(2k/3) / U
     alpha : float
         TI dependence parameter, default is 2.0 (Heck and Howland, 2026)
@@ -718,18 +720,20 @@ def x0_model_scalar(u4, an, veer=0, TI=0, alpha=2.0, beta_s=0.1403):
     """
 
     def _func(_x):
+        """residual form of x0-veer model"""
         c = _x * veer
         return (
             _x
             * (beta_s * np.abs((1 - u4) / (1 + u4)) + alpha * TI * np.abs(2 / (1 + u4)))
-        ) - 0.5 * np.sqrt((1 - an) / (1 + u4)) * np.sqrt(
-            0.5 * (c**2 + 2 - np.sqrt(c**4 + 4 * c**2))
-        )
+        ) - np.sqrt(2) / 2 * np.sqrt((1 - an) * np.cos(yaw) / (1 + u4)) * (
+            (1 + c**2) / np.cos(yaw)**2 + 1
+            + np.sqrt(((1 + c**2) / np.cos(yaw)**2 + 1)**2 - 4 / np.cos(yaw)**2)
+        )**(-1/2)
 
     return root(_func, x0=1).x[0]
 
 
-def x0_model(u4, an, veer=0, TI=0, alpha=2.0, beta_s=0.1403):
+def x0_model(u4, an, yaw=0, veer=0, TI=0, alpha=2.0, beta_s=0.1403):
     """
     Computes the near-wake length x0 considering veered
     conditions using a skewed ellipse approximation.
@@ -740,9 +744,11 @@ def x0_model(u4, an, veer=0, TI=0, alpha=2.0, beta_s=0.1403):
     ----------
     u4 : float or array-like
     an : float or array-like
-    veer : float or array-like
+    yaw: float or array-like, optional
+        Yaw angle in radians
+    veer : float or array-like, optional
         Amount of veering in radians per length
-    TI : float or array-like
+    TI : float or array-like, optional
         Turbulence intensity TI = sqrt(2k/3) / U
     alpha : float
         TI dependence parameter, default is 2.0 (Heck and Howland, 2026)
@@ -756,4 +762,4 @@ def x0_model(u4, an, veer=0, TI=0, alpha=2.0, beta_s=0.1403):
     """
 
     f = np.vectorize(x0_model_scalar)
-    return f(u4, an, veer=veer, TI=TI, alpha=alpha, beta_s=beta_s)
+    return f(u4, an, yaw=yaw, veer=veer, TI=TI, alpha=alpha, beta_s=beta_s)
