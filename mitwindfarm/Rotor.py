@@ -232,7 +232,7 @@ class UnifiedAD_TI(UnifiedAD):
         - Args:
             - rotor_grid (RotorGrid, optional): grid points over the rotor
             - beta (float, optional): shear layer growth parameter. Default is 0.1403.
-            - alpha (float, optional): turbulence intensity factor, default: 2.32 
+            - alpha (float, optional): turbulence intensity factor, default: 2.0 
                 This is alpha^* in Bastankhah and Porté-Agel (2016).
             - couple_x0 (bool, optional): If True, couples the x0 parameter to the
                 pressure solver. Default is False. (Coupling not recommended)
@@ -243,13 +243,13 @@ class UnifiedAD_TI(UnifiedAD):
 
     """
 
-    def __init__(self, rotor_grid=None, beta_s=0.1403, alpha=2.32, couple_x0=False):
+    def __init__(self, rotor_grid=None, beta_s=0.1403, alpha=2.0, couple_x0=False):
         """
         Initialize the UnifiedAD rotor model given shear layer growth parameters alpha, beta.
 
         Parameters:
         - beta_s (float): shear layer growth parameter (default is 0.1403, from Liew et al. 2024).
-        - alpha (float): Turbulence intensity factor (default is 2.32, from Bastankhah and Porté-Agel 2016).
+        - alpha (float): Turbulence intensity factor (default is 2.0, from Heck and Howland, 2026).
         - couple_x0 (bool): If True, couples the x0 parameter to the pressure equation. Default is False.
         """
         super().__init__(rotor_grid=rotor_grid)
@@ -444,7 +444,7 @@ class UnifiedMomentumTI_x0(UnifiedMomentum):
     __init__:
         - Args:
             - beta (float, optional): shear layer growth parameter. Default is 0.1403.
-            - alpha (float, optional): turbulence intensity factor. Default is 2.32
+            - alpha (float, optional): turbulence intensity factor. Default is 2.0
                 This is alpha^* in Bastankhah and Porté-Agel (2016).
             cached (bool, optional): Caches the pressure solver. Default is True.
             - v4_correction (float, optional): Correction factor for the lateral outlet velocity.
@@ -457,7 +457,7 @@ class UnifiedMomentumTI_x0(UnifiedMomentum):
     """
 
     def __init__(
-        self, beta_s=0.1403, alpha=2.32, cached=True, v4_correction=1.0, **kwargs
+        self, beta_s=0.1403, alpha=2.0, cached=True, v4_correction=1.0, **kwargs
     ):
         super().__init__(
             beta_s=beta_s, cached=cached, v4_correction=v4_correction, **kwargs
@@ -488,7 +488,7 @@ class UnifiedMomentumTI(UnifiedMomentum):
     __init__:
         - Args:
             - beta_s (float, optional): shear layer growth parameter. Default is 0.1403.
-            - alpha (float, optional): turbulence intensity factor. Default is 2.32
+            - alpha (float, optional): turbulence intensity factor. Default is 2.0
                 This is alpha^* in Bastankhah and Porté-Agel (2016).
             cached (bool, optional): Caches the pressure solver. Default is True.
             - v4_correction (float, optional): Correction factor for the lateral outlet velocity.
@@ -510,7 +510,7 @@ class UnifiedMomentumTI(UnifiedMomentum):
             >>> momentum = UnifiedMomentumTI()
             >>> momentum_sol = momentum(Ctprime, yaw=0, TI=0.05)
     """
-    def __init__(self, beta_s=0.1403, alpha=2.32, **kwargs):
+    def __init__(self, beta_s=0.1403, alpha=2.0, **kwargs):
         super().__init__(beta_s=beta_s, **kwargs)
         self.alpha = alpha
 
@@ -587,13 +587,13 @@ class UnifiedAD_veer(UnifiedAD):
     Same as UnifiedAD but also accounts for a possible dependence on veer and inflow TI. 
     """
 
-    def __init__(self, rotor_grid=None, beta_s=0.1403, alpha=2.32):
+    def __init__(self, rotor_grid=None, beta_s=0.1403, alpha=2.0):
         """
         Initialize the UnifiedAD rotor model.
 
         Parameters:
         - beta_s (float): shear layer growth parameter (default is 0.1403).
-        - alpha (float): Turbulence intensity factor (default is 2.32, 
+        - alpha (float): Turbulence intensity factor (default is 2.0, 
             which is alpha^* from Bastankhah and Porté-Agel 2016).
         """
         super().__init__(rotor_grid=rotor_grid)
@@ -657,7 +657,7 @@ class UnifiedMomentum_veer(UnifiedMomentum):
     __init__:
         - Args:
             - beta_s (float, optional): shear layer growth parameter. Default is 0.1403.
-            - alpha (float, optional): turbulence intensity factor. Default is 2.32
+            - alpha (float, optional): turbulence intensity factor. Default is 2.0
                 This is alpha^* in Bastankhah and Porté-Agel (2016).
             cached (bool, optional): Caches the pressure solver. Default is True.
             - v4_correction (float, optional): Correction factor for the lateral outlet velocity.
@@ -678,7 +678,7 @@ class UnifiedMomentum_veer(UnifiedMomentum):
     """
 
     def __init__(
-        self, beta_s=0.1403, alpha=2.32, cached=True, v4_correction=1.0, **kwargs
+        self, beta_s=0.1403, alpha=2.0, cached=True, v4_correction=1.0, **kwargs
     ):
         super().__init__(
             beta_s=beta_s, cached=cached, v4_correction=v4_correction, **kwargs
@@ -693,7 +693,7 @@ class UnifiedMomentum_veer(UnifiedMomentum):
         return super().post_process(result, Ctprime, yaw=yaw, tilt=tilt)
 
 
-def x0_model_scalar(u4, an, veer=0, TI=0, alpha=2.32, beta_s=0.1403):
+def x0_model_scalar(u4, an, veer=0, TI=0, alpha=2.0, beta_s=0.1403):
     """
     Computes the near-wake length x0 considering veered
     conditions using a skewed ellipse approximation.
@@ -707,7 +707,7 @@ def x0_model_scalar(u4, an, veer=0, TI=0, alpha=2.32, beta_s=0.1403):
     TI : float or array-like
         Turbulence intensity TI = sqrt(2k/3) / U
     alpha : float
-        TI dependence parameter, default is 2.32 (Bastankhah and Porté-Agel, 2016)
+        TI dependence parameter, default is 2.0 (Heck and Howland, 2026)
     beta_s : float
         Shear layer growth parameter, default is 0.1403 (Liew et al. (2024))
 
@@ -729,7 +729,7 @@ def x0_model_scalar(u4, an, veer=0, TI=0, alpha=2.32, beta_s=0.1403):
     return root(_func, x0=1).x[0]
 
 
-def x0_model(u4, an, veer=0, TI=0, alpha=2.32, beta_s=0.1403):
+def x0_model(u4, an, veer=0, TI=0, alpha=2.0, beta_s=0.1403):
     """
     Computes the near-wake length x0 considering veered
     conditions using a skewed ellipse approximation.
@@ -745,7 +745,7 @@ def x0_model(u4, an, veer=0, TI=0, alpha=2.32, beta_s=0.1403):
     TI : float or array-like
         Turbulence intensity TI = sqrt(2k/3) / U
     alpha : float
-        TI dependence parameter, default is 2.32 (Bastankhah and Porté-Agel, 2016)
+        TI dependence parameter, default is 2.0 (Heck and Howland, 2026)
     beta_s : float
         Shear layer growth parameter, default is 0.1403 (Liew et al. (2024))
 
