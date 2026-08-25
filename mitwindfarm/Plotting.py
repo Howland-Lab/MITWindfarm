@@ -4,7 +4,7 @@ import numpy as np
 from .windfarm import WindfarmSolution
 
 
-def plot_windfarm(sol: WindfarmSolution, ax=None, pad=1, x=None, y=None, z=None, frame=True, axis=False, res: int=400):
+def plot_windfarm(sol: WindfarmSolution, ax=None, pad=1, x=None, y=None, z=None, frame=True, axis=False, res: int=400, vmin=0, vmax=2):
     if sum(val is not None for val in (x, y, z)) > 1:
         raise ValueError("At most one of x, y, or z can br provided to plot a 2D slice of the wind farm")
 
@@ -21,7 +21,7 @@ def plot_windfarm(sol: WindfarmSolution, ax=None, pad=1, x=None, y=None, z=None,
         xmesh, zmesh = np.meshgrid(_x, _z)
         wsp = sol.windfield.wsp(xmesh, np.full_like(xmesh, y), zmesh)
         ax.imshow(
-            wsp, extent=[*xlim, *zlim], vmin=0, vmax=2, origin="lower", cmap="RdYlBu_r"
+            wsp, extent=[*xlim, *zlim], vmin=vmin, vmax=vmax, origin="lower", cmap="RdYlBu_r"
         )
     elif x is not None:
         yz_frame = True
@@ -29,7 +29,7 @@ def plot_windfarm(sol: WindfarmSolution, ax=None, pad=1, x=None, y=None, z=None,
         ymesh, zmesh = np.meshgrid(_y, _z)
         wsp = sol.windfield.wsp(np.full_like(ymesh, x), ymesh, zmesh)
         ax.imshow(
-            wsp, extent=[*ylim, *zlim], vmin=0, vmax=2, origin="lower", cmap="RdYlBu_r"
+            wsp, extent=[*ylim, *zlim], vmin=vmin, vmax=vmax, origin="lower", cmap="RdYlBu_r"
         )
     else:
         z = np.mean(sol.layout.z) if z is None else z
@@ -37,7 +37,7 @@ def plot_windfarm(sol: WindfarmSolution, ax=None, pad=1, x=None, y=None, z=None,
         xmesh, ymesh = np.meshgrid(_x, _y)
         wsp = sol.windfield.wsp(xmesh, ymesh, np.full_like(xmesh, z))
         ax.imshow(
-            wsp, extent=[*xlim, *ylim], vmin=0, vmax=2, origin="lower", cmap="RdYlBu_r"
+            wsp, extent=[*xlim, *ylim], vmin=vmin, vmax=vmax, origin="lower", cmap="RdYlBu_r"
         )
      
     for (turb_x, turb_y, turb_z), rotor in zip(sol.layout, sol.rotors):

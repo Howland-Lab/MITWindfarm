@@ -17,7 +17,7 @@ from scipy.signal import convolve2d
 from scipy.interpolate import interpn, make_interp_spline
 
 from mitwindfarm.Windfield import Windfield
-from mitwindfarm.Rotor import RotorSolution
+from mitwindfarm.Rotor import RotorSolution, compute_x0_with_TI
 from mitwindfarm.utils.integrate import (
     Integrator,
     IntegrationException,
@@ -951,12 +951,7 @@ def get_heaviside(x, yax, turbines, default_x0=1):
     """
     ret = np.zeros_like(yax)
     for t in turbines:
-        try:
-            x0 = t.rotor_solution.extra.x0
-            if x0 == np.inf:
-                x0 = default_x0
-        except AttributeError:
-            x0 = default_x0
+        x0 = compute_x0_with_TI(t.rotor_solution)
 
         if x >= t.xt and x < t.xt + x0:
             # yids = (yax >= (t.yt - t.D/2)) & (yax <= (t.yt + t.D/2))

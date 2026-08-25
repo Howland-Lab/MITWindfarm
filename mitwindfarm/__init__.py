@@ -1,5 +1,6 @@
 from ._Layout import GridLayout, Square, Layout
 from .Rotor import RotorSolution, AD, UnifiedAD, BEM, CosineRotor, UnifiedAD_TI
+from .FlorisInterface import FlorisCurledWindfarm
 from .RotorGrid import Point, Line, Area
 from .Superposition import Linear, Niayifar, Quadratic, Dominant
 from .Wake import WakeModel, GaussianWakeModel, GaussianWake, VariableKwGaussianWakeModel
