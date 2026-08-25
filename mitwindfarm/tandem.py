@@ -637,7 +637,7 @@ class TurbulenceModel_tandem_md(CurledTurbulenceModel_kl):
             Computes local mixing length in chunks. Default True.
         """
         super().__init__(curledwake, C_nu=C_nu, C_k1=C_k1, thresh=thresh)
-        self.l_nw = self.curledwake.smooth_fact if l_nw is None else l_nw
+        self.l_nw = self.curledwake.sigma_ic if l_nw is None else l_nw
         self.l_eps = l_eps
         self.cache = dict()
         self.march_field = True

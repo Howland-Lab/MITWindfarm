@@ -62,7 +62,7 @@ class CurledWakeWindfield(Windfield):
         zbuff: float = 2,
         N_vortex: int = 16,
         sigma_vortex: float = 0.2,
-        smooth_fact: float = None,
+        sigma_ic: float = None,
         use_constant_x0: float = None,
         u_model: str = "default",
         v_model: Literal["analytical", "decay"] = "default",
@@ -77,7 +77,7 @@ class CurledWakeWindfield(Windfield):
         zero_at_boundaries: bool = True,
         clip_u: float = 0.1,
         use_r4: bool = None,
-        sigma_diff_ic: float = 0.0,
+        sigma_0_fw: float = 0.21,
         auto_expand: bool = True,
         verbose: bool = False,
     ):
@@ -94,8 +94,8 @@ class CurledWakeWindfield(Windfield):
         - dz: Grid spacing in the z-direction, non-dim (default: 0.1).
         - ybuff: Buffer in the y-direction (default: 3).
         - zbuff: Buffer in the z-direction (default: 2).
-        - smooth_fact: Smoothing factor for the initial condition stencil, normalized
-            to the turbine diameter (default: dy).
+        - sigma_ic: Smoothing factor for the initial condition stencil, normalized
+            to the turbine diameter (default: 0.5*sqrt(dy*dz)).
         - N_vortex: Number of vortices to use for the dv, dw initial conditions (default: 16).
         - sigma_vortex: radius for the vortex de-singularization (default: 0.2).
         - ic_method: Method for initial condition stamping (default: "du").
@@ -117,9 +117,9 @@ class CurledWakeWindfield(Windfield):
             (default: 0.1). Set to <= 0 to disable clipping
         - use_r4: Whether to use the r4 or rotor radius for initial conditions. If left
             as `None`, uses Ali-corrected IC radius R_d. (default: None).
-        - sigma_diff_ic: diffusion length scale correction for initial condition from 
+        - sigma_0_fw: diffusion length scale correction for initial condition from 
             Ali et al. (2024). Corrects IC to account for quadratic term in momentum integral to
-            conserve thrust. Default: 0.0 (no correction). See `ic_stencil_corrected` for more details.
+            conserve thrust. Default: 0.21. See `ic_stencil_corrected` for more details.
         - auto_expand: Whether to automatically expand the domain when needed (default: True).
         - verbose: Prints debug information if True (default: False).
         """
@@ -144,7 +144,7 @@ class CurledWakeWindfield(Windfield):
 
         self.clip_u = clip_u
         self.use_r4 = use_r4
-        self.sigma_diff_ic = sigma_diff_ic
+        self.sigma_0_fw = sigma_0_fw  # far-wake initial condition parameter
         self.auto_expand = auto_expand
         self.zero_at_boundaries = zero_at_boundaries
         if zero_at_boundaries and not auto_expand:
@@ -153,11 +153,12 @@ class CurledWakeWindfield(Windfield):
                 UserWarning,
             )
         
-        # The grid will get initialized later in ()
+        # The grid will get initialized later in (check_grid_init)
         self.grid = None  # list of [x, y, z] axes
         self.bottom_wall_z = -np.inf if bottom_wall_z is None else bottom_wall_z
 
-        self.smooth_fact = dy / 2 if smooth_fact is None else smooth_fact  # smoothing factor for the IC stencil
+        # smoothing factor for the IC stencil
+        self.sigma_ic = np.sqrt(dy * dz) * 0.5 if sigma_ic is None else sigma_ic
         self.turbines = []
 
         # ============ field evolution modules ============
@@ -800,7 +801,7 @@ class DefaultUModel(CurledUModel):
                 curl.z,
                 turbine.yt,
                 turbine.zt,
-                smooth_fact=curl.smooth_fact,
+                sigma_ic=curl.sigma_ic,
                 r4 = r4,
                 eff_yaw = eff_yaw,
                 yaw = rotor.yaw,
@@ -817,8 +818,8 @@ class DefaultUModel(CurledUModel):
                 turbine.yt,
                 turbine.zt,
                 rotor,
-                smooth_fact=curl.smooth_fact,
-                sigma_diff=curl.sigma_diff_ic,
+                sigma_ic=curl.sigma_ic,
+                sigma_0_fw=curl.sigma_0_fw,
             )
             
         self.field[-1, ...] += delta_u
@@ -1491,7 +1492,7 @@ def ali_lambda(xi: float | np.ndarray) -> float | np.ndarray:
     return np.where(xi <= 0, 2.0, lam)
 
 
-def ic_stencil(y, z, yt, zt, smooth_fact=0.1, r4=0.5, eff_yaw=0.0, yaw=0.0, tilt=0.0) -> np.ndarray:
+def ic_stencil(y, z, yt, zt, sigma_ic=0.1, r4=0.5, eff_yaw=0.0, yaw=0.0, tilt=0.0) -> np.ndarray:
     """
     Stencil using distance transform for smooth circular mask.
 
@@ -1500,7 +1501,7 @@ def ic_stencil(y, z, yt, zt, smooth_fact=0.1, r4=0.5, eff_yaw=0.0, yaw=0.0, tilt
     - z: 1D array of z-coordinates, non-dim to D
     - yt: y-coordinate of the turbine center, non-dim to D
     - zt: z-coordinate of the turbine center, non-dim to D
-    - smooth_fact: smoothing factor for the mask, non-dim to D (default: 0.1)
+    - sigma_ic: smoothing factor for the mask, non-dim to D (default: 0.1)
     - r4: radius of the turbine rotor, non-dim to D (default: 0.5)
     - eff_yaw: effective yaw angle of the turbine, in radians (default: 0.0)
     - yaw: yaw angle of the turbine, in radians (default: 0.0)
@@ -1520,18 +1521,18 @@ def ic_stencil(y, z, yt, zt, smooth_fact=0.1, r4=0.5, eff_yaw=0.0, yaw=0.0, tilt
     mask = 0.5 * (1 - np.tanh((dist - 1) / (2 * np.sqrt(dy * dz))))
 
     # Apply Gaussian smoothing if needed
-    sigma_y = smooth_fact / dy  # grid units in y-direction
-    sigma_z = smooth_fact / dz  # grid units in z-direction
+    sigma_y = sigma_ic / dy  # grid units in y-direction
+    sigma_z = sigma_ic / dz  # grid units in z-direction
     mask = gaussian_filter(mask, sigma=[sigma_y, sigma_z])
     return mask
 
 
 def ic_stencil_corrected(
-        y, z, yt, zt, rotor, smooth_fact=0.1, sigma_diff=0.0, max_iter=10, tol=1e-3
+        y, z, yt, zt, rotor, sigma_ic=0.1, sigma_0_fw=0.0, max_iter=10, tol=1e-3
 ):
     """
     Iterate to compute the corrected wake width r4 which conserves mass
-    and momentum (momentum deficit integral) for arbitrary rotor and smooth_fact.
+    and momentum (momentum deficit integral) for arbitrary rotor and sigma_ic.
 
     Typically converges in 3-4 iterations.
 
@@ -1539,8 +1540,8 @@ def ic_stencil_corrected(
     - y, z: 1D coordinate arrays.
     - yt, zt: turbine center coordinates.
     - rotor: RotorSolution with fields REWS, u4, Ct, yaw, tilt, extra.
-    - smooth_fact: smoothing factor for ic_stencil (non-dim, units of D).
-    - sigma_diff: near-wake diffusion length scale sigma_diff(x0), non-dim (units of D).
+    - sigma_ic: smoothing factor for ic_stencil (non-dim, units of D).
+    - sigma_0_fw: near-wake diffusion length scale sigma_0_fw(x0), non-dim (units of D).
         When > 0, applies the Ali et al. (2024) correction so that the momentum deficit
         integral equals -T/rho at x0 (after near-wake diffusion) rather than at x=0.
         Default 0.0 preserves original behavior (target M(0) = -T/rho).
@@ -1552,16 +1553,16 @@ def ic_stencil_corrected(
     thrust_x = -rotor.Ct * np.pi / 8 * np.cos(eff_yaw)  # -T / rho, target at x0
     for _ in range(max_iter):
         shape = ic_stencil(
-            y, z, yt, zt, smooth_fact, guess_r, eff_yaw=eff_yaw, yaw=rotor.yaw, tilt=rotor.tilt
+            y, z, yt, zt, sigma_ic, guess_r, eff_yaw=eff_yaw, yaw=rotor.yaw, tilt=rotor.tilt
         )
         du = shape * (rotor.u4 - rotor.REWS)
         integrand = (rotor.REWS + du) * du
         int_mom_def = trapezoid(trapezoid(integrand, z), y)
 
         # Ali et al. (2024) correction: adjust target so M(x0) = -T/rho instead of M(0) = -T/rho.
-        if sigma_diff > 0:
-            lam = ali_lambda(sigma_diff / guess_r)
-            lam_0 = ali_lambda(smooth_fact / guess_r)
+        if sigma_0_fw > 0:
+            lam = ali_lambda(sigma_0_fw / guess_r)
+            lam_0 = ali_lambda(sigma_ic / guess_r)
             ali_factor = (rotor.REWS - du_mag * lam_0 / 2) / (rotor.REWS - du_mag * lam / 2)
             target = thrust_x * ali_factor
         else:
