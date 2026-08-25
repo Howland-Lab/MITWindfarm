@@ -221,7 +221,7 @@ class VortexWake(Wake):
         # return (1 + np.sqrt(1 - self.Ct)) / 2 / np.sqrt(1 - self.Ct)
         an = self.rotor_sol.an / self.rotor_sol.REWS
         u4 = self.rotor_sol.u4 / self.rotor_sol.REWS
-        return (1 - an) / u4
+        return (1 - an) * np.cos(self.rotor_sol.yaw) / u4
 
     def du(self, x):
         """
@@ -237,7 +237,7 @@ class VortexWake(Wake):
         # Cx[x <= x0] = 2 * self.rotor_sol.an / self.rotor_sol.REWS  # This is in the paper
 
         # use this instead:  (generalizes to Unified model)
-        # Cx = np.clip(Cx, 0, 1 - self.rotor_sol.u4 / self.rotor_sol.REWS)
+        Cx = np.clip(Cx, 0, 1 - self.rotor_sol.u4 / self.rotor_sol.REWS)
         Cx[x < 0] = 0  # no wake deficit in front of the turbine
         return Cx
 
