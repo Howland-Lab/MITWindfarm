@@ -552,43 +552,47 @@ def get_x_nw(x, yax, zax, turbines, use_constant_x0=None):
                 )
 
         normfact = (x0 - xlocal) / x0
-        if hasattr(t, "ic"):
-            if t.ic.shape != (len(yax), len(zax)):
-                yst = np.argmin(np.abs(yax - t.y[0]))
-                yen = np.argmin(np.abs(yax - t.y[-1])) + 1
-                zst = np.argmin(np.abs(zax - t.z[0]))
-                zen = np.argmin(np.abs(zax - t.z[-1])) + 1
-                shape = np.pad(t.ic, ((yst, len(yax) - yen), (zst, len(zax) - zen)), mode="constant", constant_values=0)
-                t.ic = shape  # update IC with new shape
-                t.y = yax
-                t.z = zax
-                if hasattr(t, "l_baseflow"):
-                    t.l_baseflow = np.pad(
-                        t.l_baseflow,
-                        ((yst, len(yax) - yen), (zst, len(zax) - zen)),
-                        mode="constant",
-                        constant_values=0,
-                    )
-            else:
-                shape = t.ic
+        if "ic" in t.fields:
+            # t.fields is always kept aligned with the current (yax, zax) grid
+            # by CurledWakeWindfield.adjust_grid_bounds, so no shape-matching needed here.
+            shape = t.fields["ic"]
         else:
             # probably we should change this width...
             shape = np.exp(-((yax[:, None] - t.yt) ** 2 + (zax[None, :] - t.zt) ** 2) / 2 / (t.D / 2) ** 2)
 
         ret = np.maximum(ret, normfact * shape)
-        if hasattr(t, "l_baseflow"):
-            l_baseflow = np.maximum(l_baseflow, (shape > 0.05) * t.l_baseflow)
+        if "l_baseflow" in t.fields:
+            l_baseflow = np.maximum(l_baseflow, (shape > 0.05) * t.fields["l_baseflow"])
 
     ret = np.clip(ret, 0, 1)
 
     return 1 - ret, l_baseflow
 
 
-def _lmix_md(dk, k, shear):
-    """Compute MD mixing length from delta k, k, and the shear production field"""
+def _lmix_md(dk, k, shear, dk_scale=None, rel_tol=1e-4):
+    """
+    Compute MD mixing length from delta k, k, and the shear production field.
+
+    If `dk_scale` is given (the peak dk over the full x-slice this chunk was
+    carved from), a chunk whose own peak dk is below `rel_tol * dk_scale` is
+    treated as genuinely freestream (no local wake) and returns lmix=0
+    directly, instead of evaluating sqrt(num/den). Without this check, a
+    chunk that is truly wake-free can still have tiny non-zero num/den from
+    floating-point roundoff in the marched du/dk fields; because both are
+    independently-noisy near-zero quantities, their ratio is not
+    meaningful and can spuriously come out O(1) or larger (e.g. for
+    freestream turbines on the edge of an array, whose own "local" chunk
+    extends out to the domain edge with no real wake signal to dominate the
+    roundoff). The `eps`-based regularization below only prevents literal
+    0/0 NaNs; it does not guard against this noise-over-noise blowup.
+    """
+    dk_pos = np.maximum(dk, 0)
+    if dk_scale is not None and np.max(dk_pos) <= rel_tol * dk_scale:
+        return np.float64(0.0)
+
     eps = np.finfo(float).eps
     _lmix = np.sqrt(
-        np.sum(np.maximum(dk, 0) ** 1.5)
+        np.sum(dk_pos ** 1.5)
         / (
             np.sum(np.sqrt(np.maximum(k, 0) + eps) * np.maximum(shear, 0))
             + eps  # de-singularize Dual component
@@ -603,11 +607,10 @@ class TurbulenceModel_tandem_md(CurledTurbulenceModel_kl):
     def __init__(
         self,
         curledwake,
-        C_nu=0.32,
+        C_nu=0.35,
         C_k1=1,
         l_nw=None,
-        l_eps=1.0,
-        lmix_max=2.0,
+        l_eps=0.78,
         thresh=1e-6,
         lmix_local=True,
         cache_lmix_ic=True,
@@ -623,21 +626,18 @@ class TurbulenceModel_tandem_md(CurledTurbulenceModel_kl):
         curledwake : CurledWakeWindfield
             The curled wake wind field to which this turbulence model is applied.
         C_nu : float, optional
-            Coefficient for eddy viscosity calculation. Default is 0.45.
+            Coefficient for eddy viscosity calculation. Default is 0.35.
         C_k1 : float, optional
             Coefficient for turbulent transport. Default is 1.
         l_nw : float, optional
             Near-wake mixing length scale. Default is half the curledwake smoothing factor.
         l_eps : float, optional
-            Dissipation length scale. Default is 1.0.
-        lmix_max : float, optional
-            Maximum allowable mixing length. Default is 2.0.
+            Dissipation length scale. Default is 0.78.
         lmix_local : bool, optional
             Computes local mixing length in chunks. Default True.
         """
         super().__init__(curledwake, C_nu=C_nu, C_k1=C_k1, thresh=thresh)
-        self.lmix_max = lmix_max
-        self.l_nw = self.curledwake.smooth_fact / 2 if l_nw is None else l_nw
+        self.l_nw = self.curledwake.smooth_fact if l_nw is None else l_nw
         self.l_eps = l_eps
         self.cache = dict()
         self.march_field = True
@@ -656,7 +656,8 @@ class TurbulenceModel_tandem_md(CurledTurbulenceModel_kl):
         dk = self.curledwake.modules["dk"].get_field_x(turbine.xt)
         # because ub, kb are hard to access, just use du and dk rather than full u, k
         lmix = self._lmix(turbine.xt, du, dk, du, dk, fix_nearwake=False)
-        turbine.l_baseflow = lmix
+        # kept in sync with the grid via turbine.fields (see CurledWakeWindfield.adjust_grid_bounds)
+        turbine.fields["l_baseflow"] = lmix
 
     def _lmix(self, x, u, k, du, dk, fix_nearwake=True):
         """Returns the mixing length field at position x."""
@@ -671,6 +672,10 @@ class TurbulenceModel_tandem_md(CurledTurbulenceModel_kl):
         )
         self.cache["shear"] = shear  # add to cache
 
+        # peak dk over the full x-slice, used to flag individual chunks as
+        # genuinely freestream (see `_lmix_md`) rather than noise-dominated
+        dk_scale = np.max(np.maximum(dk, 0))
+
         if self.lmix_local:
             # get xids of turbines here:
             yts_and_edges = [y[0] - 1] + get_turbine_yts(x, self.curledwake.turbines) + [y[-1] + 1]
@@ -683,7 +688,7 @@ class TurbulenceModel_tandem_md(CurledTurbulenceModel_kl):
                     # compute integral between all sections
                     y1 = yids_mid[kk]
                     y2 = yids_mid[kk+1]
-                    _lmix = _lmix_md(dk[y1:y2, ...], k[y1:y2], shear[y1:y2, ...])
+                    _lmix = _lmix_md(dk[y1:y2, ...], k[y1:y2], shear[y1:y2, ...], dk_scale=dk_scale)
                     lmix_vals.append(_lmix)
                 lmix_vals = [lmix_vals[0]] + lmix_vals + [lmix_vals[-1]]  # duplicate first and last values
 
@@ -694,7 +699,7 @@ class TurbulenceModel_tandem_md(CurledTurbulenceModel_kl):
                 )
                 lmix = lmix_func(y)[:, None]  # interpolate lmix to y-axis
         else:
-            lmix = _lmix_md(dk, k, shear)[None, None]
+            lmix = _lmix_md(dk, k, shear, dk_scale=dk_scale)[None, None]
 
         if fix_nearwake:
             # compute the near-wake mask
@@ -788,7 +793,6 @@ class TurbulenceModel_tandem(TurbulenceModel_tandem_md):
         C_k1=1,
         l_nw=None,
         l_eps=1.0,
-        lmix_max=2.0,
         thresh=1e-6,
         lmix_local=True,
         L_obu=np.inf,
@@ -824,7 +828,6 @@ class TurbulenceModel_tandem(TurbulenceModel_tandem_md):
             C_k1=C_k1,
             l_nw=l_nw,
             l_eps=l_eps,
-            lmix_max=lmix_max,
             thresh=thresh,
             lmix_local=lmix_local,
             cache_lmix_ic=cache_lmix_ic,
@@ -866,6 +869,7 @@ class TurbulenceModel_tandem(TurbulenceModel_tandem_md):
             to_interp.append(lb)
 
         if len(to_interp) > 1:
-            return softmin(np.broadcast_arrays(*to_interp), axis=0, Lambda=0.1)  # expand dims
+            return np.min(np.broadcast_arrays(*to_interp), axis=0)  # expand dims
+            # return softmin(np.broadcast_arrays(*to_interp), axis=0, Lambda=0.1)  # expand dims
         else:
             return l_md
