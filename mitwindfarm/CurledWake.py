@@ -6,7 +6,7 @@ Kirby Heck
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, Union
 from warnings import warn
 
@@ -60,7 +60,7 @@ class CurledWakeWindfield(Windfield):
         dz: float = 0.1,
         ybuff: float = 3,
         zbuff: float = 2,
-        N_vortex: int = 128,
+        N_vortex: int = 16,
         sigma_vortex: float = 0.2,
         smooth_fact: float = None,
         use_constant_x0: float = None,
@@ -96,7 +96,7 @@ class CurledWakeWindfield(Windfield):
         - zbuff: Buffer in the z-direction (default: 2).
         - smooth_fact: Smoothing factor for the initial condition stencil, normalized
             to the turbine diameter (default: dy).
-        - N_vortex: Number of vortices to use for the dv, dw initial conditions (default: 10).
+        - N_vortex: Number of vortices to use for the dv, dw initial conditions (default: 16).
         - sigma_vortex: radius for the vortex de-singularization (default: 0.2).
         - ic_method: Method for initial condition stamping (default: "du").
             NOTE: "fx" is experimental and only solves for EF marching.
@@ -157,7 +157,7 @@ class CurledWakeWindfield(Windfield):
         self.grid = None  # list of [x, y, z] axes
         self.bottom_wall_z = -np.inf if bottom_wall_z is None else bottom_wall_z
 
-        self.smooth_fact = dy if smooth_fact is None else smooth_fact  # smoothing factor for the IC stencil
+        self.smooth_fact = dy / 2 if smooth_fact is None else smooth_fact  # smoothing factor for the IC stencil
         self.turbines = []
 
         # ============ field evolution modules ============
@@ -326,6 +326,22 @@ class CurledWakeWindfield(Windfield):
         self.dw = np.pad(self.dw, ((0, 0), ypad, zpad), mode="constant")
         self.dk = np.pad(self.dk, ((0, 0), ypad, zpad), mode="constant")
         self.extra_fx = np.pad(self.extra_fx, (ypad, zpad), mode="constant")
+
+        # any (y, z)-shaped arrays cached on turbines (e.g. `ic`, `l_baseflow`)
+        # need to grow in lockstep with the grid, using the same pad widths,
+        # so they stay aligned with self.y/self.z without any separate
+        # shape-matching logic downstream. Some cached fields are intentionally
+        # broadcastable along one axis (e.g. a mixing length that only varies
+        # in y, stored with shape (ny, 1)) -- leave singleton axes alone rather
+        # than padding them, so they stay broadcastable against the full grid.
+        if ypad != (0, 0) or zpad != (0, 0):
+            for turbine in self.turbines:
+                for name, arr in turbine.fields.items():
+                    pad_width = tuple(
+                        (0, 0) if size == 1 else pad
+                        for size, pad in zip(arr.shape, (ypad, zpad))
+                    )
+                    turbine.fields[name] = np.pad(arr, pad_width, mode="constant")
 
     def check_grid_init(
         self, x: ArrayLike = None, y: ArrayLike = None, z: ArrayLike = None
@@ -651,6 +667,13 @@ class TurbineProperties:
     rotor_solution: RotorSolution
     # IC: ArrayLike
 
+    # (y, z)-shaped arrays cached at stamp time (e.g. `ic`, `l_baseflow`) that
+    # must stay aligned with `CurledWakeWindfield.grid`. Anything stored here
+    # is automatically padded in-place whenever the domain is expanded (see
+    # `CurledWakeWindfield.adjust_grid_bounds`), so callers can always assume
+    # these arrays match the *current* y/z grid without any shape-checking.
+    fields: dict[str, ArrayLike] = field(default_factory=dict)
+
 
 # ███████ ██ ███████ ██      ██████       ██████ ██       █████  ███████ ███████
 # ██      ██ ██      ██      ██   ██     ██      ██      ██   ██ ██      ██
@@ -799,9 +822,8 @@ class DefaultUModel(CurledUModel):
             )
             
         self.field[-1, ...] += delta_u
-        turbine.ic = np.abs(delta_u) / np.max(np.abs(delta_u))  # store this for near-wake
-        turbine.y = curl.y
-        turbine.z = curl.z
+        # store this for near-wake; kept in sync with the grid via turbine.fields
+        turbine.fields["ic"] = np.abs(delta_u) / np.max(np.abs(delta_u))
 
     def ddx(self, x):
         """Computes d(du)/dx at location x"""
@@ -1203,6 +1225,15 @@ class CurledTurbulenceModel_kl(CurledTurbulenceModel):
         )
         return self.nu_T_cached
 
+    def postprocess_nu_T(self):
+        """Compute nu_T from the stored du, dk 3D windfields"""
+        nu_T = np.zeros_like(self.curledwake.u)
+        u, k, du, dk = [getattr(self.curledwake, name) for name in ["u", "k", "du", "dk"]]
+        for i, x in enumerate(self.curledwake.x):
+            self.curledwake.shared_flow_data = dict(u=u[i, ...], k=k[i, ...], du=du[i, ...], dk=dk[i, ...], kb=k[i, ...]-dk[i, ...])
+            nu_T[i, ...] = self.nu_T(x)
+        return nu_T
+
     def ddx(self, x):
         """
         Computes the dk/dx term for the turbulence model.
@@ -1384,7 +1415,7 @@ def vortex_field_from_turbine(turbine, y, z, N_vortex=12, bottom_wall_z=-np.inf,
         return (0, 0)  # no additional dv, dw to stamp in for this turbine
 
     # NOTE: rotor.Ct differs from Shapiro et al. (2018) definition - includes cos^2(yaw) already
-    Gamma_0 = 0.5 * turbine.D * rotor.REWS * rotor.Ct * np.sin(eff_yaw)
+    Gamma_0 = 0.5 * turbine.D * rotor.REWS * rotor.extra.Ct * np.sin(eff_yaw)
 
     v, w = compute_vortex_field(
         y,
@@ -1528,10 +1559,6 @@ def ic_stencil_corrected(
         int_mom_def = trapezoid(trapezoid(integrand, z), y)
 
         # Ali et al. (2024) correction: adjust target so M(x0) = -T/rho instead of M(0) = -T/rho.
-        # The near-wake diffusion (sigma_diff) causes |M| to grow from x=0 to x0.
-        # Ali Eq. (2.10): Lambda(xi) encodes how much A2 = integral(r W^2 dr) shrinks with diffusion.
-        # M(x0) / M(0) = (REWS - du_mag * Lambda(sigma_0/r4) / 2) / (REWS - du_mag)
-        # so: target at x=0 = thrust_x * (REWS - du_mag) / (REWS - du_mag * Lambda(sigma_0/r4) / 2)
         if sigma_diff > 0:
             lam = ali_lambda(sigma_diff / guess_r)
             lam_0 = ali_lambda(smooth_fact / guess_r)
