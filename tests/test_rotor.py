@@ -23,7 +23,7 @@ def test_bem_rotor():
 
 
 def test_unified_ad_rotor():
-    unified_ad_rotor = UnifiedAD(beta_s=0.1403)
+    unified_ad_rotor = UnifiedAD(beta=0.1403)
     x, y, z = 0, 0, 0
     windfield = Windfield.Uniform()
 
