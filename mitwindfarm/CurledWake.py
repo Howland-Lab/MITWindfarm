@@ -25,7 +25,6 @@ from mitwindfarm.utils.integrate import (
     DomainExpansionRequest,
 )
 from UnifiedMomentumModel.Utilities.Geometry import calc_eff_yaw, eff_yaw_rotation, eff_yaw_inv_rotation
-from mitwindfarm.utils.differentiate import second_der
 
 
 #  ██████ ██    ██ ██████  ██      ███████ ██████      ██     ██  █████  ██   ██ ███████

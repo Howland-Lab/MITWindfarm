@@ -767,19 +767,19 @@ def x0_model(u4, an, yaw=0, veer=0, TI=0, alpha=2.0, beta_s=0.1403):
 
 
 def compute_x0_with_TI(rotor_solution: RotorSolution, alpha=2.0, beta_s=0.1403):
+    """
+    U0-invariant x0, computed with non-dimensional velocities. Needed because 
+    alpha*TI is non-dim only. This is *probably* the correct way to compute x0.
+    """
+    Us = 1.0                          # nondimensional reference (was: rotor_solution.REWS)
+    a = rotor_solution.extra.an
+    u4 = rotor_solution.extra.u4      # nondimensional (was: rotor_solution.u4)
 
-    # Extract quantities from rotor solution for ease of use and documentation
-    Us = rotor_solution.REWS
-    a = rotor_solution.extra.an # HAS NOT been scaled by velocity
-    u4 = rotor_solution.u4 # HAS been scaled by velocity
-
-    # Convert yaw, tilt to rotated frame of reference
     yaw_eff = calc_eff_yaw(rotor_solution.yaw, rotor_solution.tilt)
 
-    # Compute near wake length x0 and return
     x0 = (
         (np.cos(yaw_eff) * (Us + u4)) /
-        ((2*beta_s) * np.abs(Us - u4) + 4 * alpha * rotor_solution.TI)
+        ((2*beta_s) * np.abs(Us - u4) / Us + 4 * alpha * rotor_solution.TI)
         * np.sqrt(((1 - a) * np.cos(yaw_eff) * Us)/(Us + u4))
     )
 
