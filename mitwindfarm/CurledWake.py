@@ -682,6 +682,19 @@ class TurbineProperties:
 # ██      ██ ███████ ███████ ██████       ██████ ███████ ██   ██ ███████ ███████
 
 
+def promote_like(arr, like):
+    """
+    Returns `arr` upgraded to the derivative-carrying type of `like` (e.g. a dual number)
+    with zero derivatives, or `arr` itself if `like` is a plain array. Types are detected
+    by duck typing (a `.dual` attribute), so no automatic differentiation package is imported.
+
+    See also: dualitic: https://github.com/jaimeliew1/Dualitic
+    """
+    if not hasattr(like, "dual") or hasattr(arr, "dual"):
+        return arr
+    return type(like)(arr, np.zeros((*np.shape(arr), like.dual.shape[-1])))
+
+
 class Field(ABC):
     """
     Base class for a field variable in the curled wake model. This
@@ -727,6 +740,11 @@ class Field(ABC):
     def stamp_ic(self, turbine: TurbineProperties):
         """Any code that should be executed when a new turbine is added goes here"""
         ...
+
+    def _add_to_latest(self, delta):
+        """Adds `delta` to the most recent x-slice, promoting the field if `delta` carries derivatives."""
+        self.field = promote_like(self.field, delta)
+        self.field[-1, ...] += delta
 
     def __repr__(self):
         return f"CurledWakeField: {self.__class__.__name__}"
@@ -821,7 +839,7 @@ class DefaultUModel(CurledUModel):
                 sigma_0_fw=curl.sigma_0_fw,
             )
             
-        self.field[-1, ...] += delta_u
+        self._add_to_latest(delta_u)
         # store this for near-wake; kept in sync with the grid via turbine.fields
         turbine.fields["ic"] = np.abs(delta_u) / np.max(np.abs(delta_u))
 
@@ -899,7 +917,7 @@ class DefaultVModel(CurledVModel):
         """Stamp the initial condition of the rotor solution into the dv field."""
         curl = self.curledwake
         v, _ = vortex_field_from_turbine(turbine, curl.y, curl.z, curl.N_vortex, curl.bottom_wall_z, curl.sigma_vortex)
-        self.field[-1, ...] += v
+        self._add_to_latest(v)
 
 
 class MarchedVModel(CurledVModel):
@@ -920,7 +938,7 @@ class MarchedVModel(CurledVModel):
         """Stamp the initial condition of the rotor solution into the dv field."""
         curl = self.curledwake
         v, _ = vortex_field_from_turbine(turbine, curl.y, curl.z, curl.N_vortex, curl.bottom_wall_z, curl.sigma_vortex)
-        self.field[-1, ...] += v
+        self._add_to_latest(v)
 
     def ddx(self, x):
         """Computes d(du)/dx at location x"""
@@ -991,7 +1009,7 @@ class DefaultWModel(CurledWModel):
         """Stamp the initial condition of the rotor solution into the dv field."""
         curl = self.curledwake
         _, w = vortex_field_from_turbine(turbine, curl.y, curl.z, curl.N_vortex, curl.bottom_wall_z, curl.sigma_vortex)
-        self.field[-1, ...] += w
+        self._add_to_latest(w)
 
 
 # ████████ ██    ██ ██████  ██████  ██    ██ ██      ███████ ███    ██  ██████ ███████     ███    ███  ██████  ██████  ███████ ██      ███████
@@ -1415,7 +1433,8 @@ def vortex_field_from_turbine(turbine, y, z, N_vortex=12, bottom_wall_z=-np.inf,
         return (0, 0)  # no additional dv, dw to stamp in for this turbine
 
     # NOTE: rotor.Ct differs from Shapiro et al. (2018) definition - includes cos^2(yaw) already
-    Gamma_0 = 0.5 * turbine.D * rotor.REWS * rotor.extra.Ct * np.sin(eff_yaw)
+    # rotor.Ct = Ct_nondim * REWS**2; written this way (not rotor.extra.Ct) so that rotors whose `extra.Ct` is a method (BEM) work
+    Gamma_0 = 0.5 * turbine.D * rotor.Ct / rotor.REWS * np.sin(eff_yaw)
 
     v, w = compute_vortex_field(
         y,
@@ -1483,12 +1502,12 @@ def ali_lambda(xi: float | np.ndarray) -> float | np.ndarray:
       Limits: xi -> 0 (sharp top-hat, no diffusion) -> Lambda = 2;
               xi -> inf (fully diffused to Gaussian) -> Lambda = 0.
     """
-    xi = np.asarray(xi, dtype=float)
-    safe_xi = np.where(xi > 0, xi, 1.0)      # avoid 1/0; overridden at xi=0 below
+    # Lambda is continuous at xi=0 (-> 2), so clipping avoids 1/0 without a branch. Only
+    # operators/ufuncs are used so that array-like types (e.g. dual numbers) pass through.
+    safe_xi = np.maximum(xi, 1e-12)
     inv_xi = 1.0 / safe_xi
     inner = erf(inv_xi) - safe_xi / np.sqrt(np.pi) * (1.0 - np.exp(-inv_xi**2))
-    lam = 2.0 * inner**2
-    return np.where(xi <= 0, 2.0, lam)
+    return 2.0 * inner**2
 
 
 def ic_stencil(y, z, yt, zt, sigma_ic=0.1, r4=0.5, eff_yaw=0.0, yaw=0.0, tilt=0.0) -> np.ndarray:
@@ -1575,8 +1594,17 @@ def ic_stencil_corrected(
                 f"ic_stencil_corrected did not converge in {max_iter} iterations, final error {err:.4e}"
             )
 
-        r4_new = guess_r * np.sqrt(target / int_mom_def)
-        guess_r = r4_new
+        # Secant step on log(M/target) vs log(r). M ~ r^2 for a wide disc, so start with that
+        # exponent, but for small r (low Ct') the grid-resolved stencil is steeper and the plain
+        # r^2 update oscillates instead of converging.
+        g = np.log(int_mom_def / target)
+        exponent = 2.0
+        if _ > 0 and guess_r != prev_r:
+            exponent = (g - prev_g) / (np.log(guess_r) - np.log(prev_r))
+            if not 0.5 < exponent < 8:
+                exponent = 2.0
+        prev_r, prev_g = guess_r, g
+        guess_r = guess_r * np.exp(-g / exponent)
     return du
 
 

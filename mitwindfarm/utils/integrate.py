@@ -210,8 +210,43 @@ class Integrator:
             )
 
     def __call__(self, dudt, T, u0, **kwargs):
-        """Calls the integrator function"""
+        """
+        Calls the integrator function. If `u0` carries derivatives (detected by a `.dual`
+        attribute, e.g. a dual number for automatic differentiation) the state and its
+        derivatives are packed into one flat float array, integrated as extra state
+        variables (forward sensitivities), and unpacked into the same type on return.
 
+        See also: https://github.com/Howland-Lab/Dualitic
+        """
+        if not hasattr(u0, "dual"):
+            return self._integrate(dudt, T, u0, **kwargs)
+
+        cls, shape, degree = type(u0), u0.real.shape, u0.dual.shape[-1]
+        n = u0.real.size
+
+        def pack(u):
+            if hasattr(u, "dual"):
+                real, dual = np.ravel(u.real), np.reshape(u.dual, (n, degree))
+            else:
+                real, dual = np.ravel(u), np.zeros((n, degree))
+            return np.concatenate([real, dual.ravel()])
+
+        def unpack(y):
+            y = np.asarray(y)
+            lead = y.shape[:-1]
+            return cls(y[..., :n].reshape(*lead, *shape), y[..., n:].reshape(*lead, *shape, degree))
+
+        def unpack_trajectory(y, nt):
+            return unpack(np.reshape(y, (nt, -1)))
+
+        try:
+            t, y = self._integrate(lambda t, y: pack(dudt(t, unpack(y))), T, pack(u0), **kwargs)
+        except (DomainExpansionRequest, IntegrationException) as e:
+            e.partial_u = unpack_trajectory(e.partial_u, len(e.partial_t))
+            raise e
+        return t, unpack_trajectory(y, len(t))
+
+    def _integrate(self, dudt, T, u0, **kwargs):
         if self.use_scipy_method:
             _kwargs = dict(rtol=1e-4, max_step=0.5)  # helps with stability
             _kwargs.update(kwargs)

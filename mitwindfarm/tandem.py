@@ -615,6 +615,7 @@ class TurbulenceModel_tandem_md(CurledTurbulenceModel_kl):
         lmix_local=True,
         cache_lmix_ic=True,
         fix_nearwake=True,
+        nw_blend = 0.0  # 0 = hard near/far-wake switch at nw_mask = 0.95
     ):
         """
         Initializes the TANDEM curled turbulence model for nu_T with only the 
@@ -644,6 +645,7 @@ class TurbulenceModel_tandem_md(CurledTurbulenceModel_kl):
         self.lmix_local = lmix_local
         self.cache_lmix_ic = cache_lmix_ic
         self.fix_nearwake = fix_nearwake
+        self.nw_blend = nw_blend
 
     def stamp_ic(self, turbine):
         """
@@ -714,7 +716,12 @@ class TurbulenceModel_tandem_md(CurledTurbulenceModel_kl):
 
             # apply near-wake model
             lmix_nw = self.l_nw * nw_mask + l_base
-            lmix = lmix * (nw_mask >= 0.95) + lmix_nw * (nw_mask < 0.95)
+            if self.nw_blend > 0:  # smoothstep over nw_mask in 0.95 +/- nw_blend/2 (centered so the switch point does not move)
+                s = np.clip((nw_mask - 0.95) / self.nw_blend + 0.5, 0, 1)
+                w_far = s * s * (3 - 2 * s)
+            else:
+                w_far = nw_mask >= 0.95
+            lmix = lmix * w_far + lmix_nw * (1 - w_far)
 
         if np.any(lmix < 0):
             raise ValueError("lmix is negative")
@@ -802,6 +809,7 @@ class TurbulenceModel_tandem(TurbulenceModel_tandem_md):
         inflow=None,
         cache_lmix_ic=True,
         fix_nearwake=True,
+        nw_blend=0.0,  # 0 = hard near/far-wake switch at nw_mask = 0.95
     ):
         """
         Initializes the TANDEM turbulence closure with stable boundary layer
@@ -832,6 +840,7 @@ class TurbulenceModel_tandem(TurbulenceModel_tandem_md):
             lmix_local=lmix_local,
             cache_lmix_ic=cache_lmix_ic,
             fix_nearwake=fix_nearwake,
+            nw_blend=nw_blend,
         )
         if inflow is not None:
             # Define buoyancy length scale as C_b * sqrt(tke) / N_bv, where N_bv is the Brunt-Vaisala frequency
@@ -869,7 +878,11 @@ class TurbulenceModel_tandem(TurbulenceModel_tandem_md):
             to_interp.append(lb)
 
         if len(to_interp) > 1:
-            return np.min(np.broadcast_arrays(*to_interp), axis=0)  # expand dims
+            # pairwise np.minimum broadcasts and, unlike np.min over a list of arrays, accepts dual-number arrays
+            lmix = to_interp[0]
+            for _l in to_interp[1:]:
+                lmix = np.minimum(lmix, _l)
+            return lmix
             # return softmin(np.broadcast_arrays(*to_interp), axis=0, Lambda=0.1)  # expand dims
         else:
             return l_md
